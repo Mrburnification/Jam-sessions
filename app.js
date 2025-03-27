@@ -1,6 +1,6 @@
 // Replace these with your GitHub details
-const GITHUB_USER = 'your-github-username';
-const REPO_NAME = 'your-repo-name';
+const GITHUB_USER = 'Mrburnification';
+const REPO_NAME = 'Jam-sessions';
 const AUDIO_BASE_URL = `https://${GITHUB_USER}.github.io/${REPO_NAME}/audio`;
 
 const audio = new Howl({
