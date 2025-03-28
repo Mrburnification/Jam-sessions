@@ -477,7 +477,8 @@ volumeControl.addEventListener('input', (e) => {
 
 // Add time display to player
 function addTimeDisplay() {
-    const trackInfo = document.querySelector('.track-info');
+    // Change this selector to target the player controls container
+    const playerControls = document.querySelector('.player-controls .track-info');
     
     // Check if time display already exists
     if (!document.querySelector('.time-display')) {
@@ -488,10 +489,11 @@ function addTimeDisplay() {
             <span class="time-separator">/</span>
             <span id="total-time">0:00</span>
         `;
-        trackInfo.appendChild(timeDisplay);
+        // Insert after the progress container
+        const progressContainer = document.querySelector('.progress-container');
+        progressContainer.insertAdjacentElement('afterend', timeDisplay);
     }
 }
-
 // Create a new p5 instance for the background visualization
 function setupP5Background() {
     p5sketch = new p5((p) => {

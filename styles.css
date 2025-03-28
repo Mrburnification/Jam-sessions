@@ -110,6 +110,22 @@ main {
     overflow: hidden;
 }
 */
+.player-controls .time-display {
+    display: flex;
+    justify-content: space-between;
+    color: rgba(255, 255, 255, 0.8);
+    font-size: 0.8rem;
+    margin: 0.5rem 0;
+    padding: 0 5px;
+}
+
+/* Add this to ensure proper layout in player controls */
+.player-controls .track-info {
+    display: flex;
+    flex-direction: column;
+    width: 100%;
+}
+
 .player-controls {
     display: flex;
     flex-direction: column;
