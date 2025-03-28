@@ -285,31 +285,25 @@ window.addEventListener('load', async () => {
     // Show loading screen
     const loadingOverlay = showLoadingScreen();
     
-    // Load sessions first but don't display yet
-    await populateSessions(true); // Pass true to indicate we're in preload mode
-    
-    // Set up the p5 sketch
-    const canvasReady = new Promise(resolve => {
-        setTimeout(() => {
-            setupP5Background();
-            resolve();
-        }, 100);
-    });
-    
-    // Wait for canvas to be ready
-    await canvasReady;
-    
-    // Short delay to ensure everything is rendered
-    await new Promise(resolve => setTimeout(resolve, 300));
-    
-    // Now reveal the content
-    document.body.classList.add('content-loaded');
-    
-    // Hide loading screen
-    hideLoadingScreen(loadingOverlay);
-    
-    // Add time display
-    addTimeDisplay();
+    try {
+        // Load sessions first
+        await populateSessions(); // Remove the preload mode parameter
+        
+        // Set up the p5 sketch
+        setupP5Background();
+        
+        // Short delay to ensure everything is rendered
+        await new Promise(resolve => setTimeout(resolve, 300));
+        
+        // Now reveal the content
+        document.body.classList.add('content-loaded');
+    } catch (error) {
+        console.error('Initialization error:', error);
+        container.innerHTML = '<div class="loading">Error loading content</div>';
+    } finally {
+        // Hide loading screen
+        hideLoadingScreen(loadingOverlay);
+    }
     
     // Handle window resize
     window.addEventListener('resize', () => {
