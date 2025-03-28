@@ -255,14 +255,79 @@ function loadTrackDurations() {
     });
 }
 
-// Populate sessions in the UI
-async function populateSessions() {
+// Add a loading screen function
+function showLoadingScreen() {
+    // Create loading overlay
+    const loadingOverlay = document.createElement('div');
+    loadingOverlay.className = 'loading-overlay';
+    loadingOverlay.innerHTML = `
+        <div class="loading-content">
+            <div class="loading-spinner"></div>
+            <div class="loading-text">Loading PBT Jam Archive...</div>
+        </div>
+    `;
+    document.body.appendChild(loadingOverlay);
+    return loadingOverlay;
+}
+
+// Function to hide loading screen with fade out
+function hideLoadingScreen(loadingOverlay) {
+    loadingOverlay.classList.add('fade-out');
+    setTimeout(() => {
+        if (loadingOverlay.parentNode) {
+            loadingOverlay.parentNode.removeChild(loadingOverlay);
+        }
+    }, 500); // Match this with CSS transition time
+}
+
+// Update the window load event handler
+window.addEventListener('load', async () => {
+    // Show loading screen
+    const loadingOverlay = showLoadingScreen();
+    
+    // Load sessions first but don't display yet
+    await populateSessions(true); // Pass true to indicate we're in preload mode
+    
+    // Set up the p5 sketch
+    const canvasReady = new Promise(resolve => {
+        setTimeout(() => {
+            setupP5Background();
+            resolve();
+        }, 100);
+    });
+    
+    // Wait for canvas to be ready
+    await canvasReady;
+    
+    // Short delay to ensure everything is rendered
+    await new Promise(resolve => setTimeout(resolve, 300));
+    
+    // Now reveal the content
+    document.body.classList.add('content-loaded');
+    
+    // Hide loading screen
+    hideLoadingScreen(loadingOverlay);
+    
+    // Add time display
+    addTimeDisplay();
+    
+    // Handle window resize
+    window.addEventListener('resize', () => {
+        resizeCanvases();
+    });
+});
+
+// Update populateSessions to support preloading
+async function populateSessions(preloadMode = false) {
     const container = document.getElementById('sessions-list');
-    container.innerHTML = '<div class="loading">Loading sessions...</div>';
+    
+    if (!preloadMode) {
+        container.innerHTML = '<div class="loading">Loading sessions...</div>';
+    }
 
     const sessions = await getSessions();
     
-    // Clear the loading message
+    // Clear the container
     container.innerHTML = '';
 
     if (sessions.length === 0) {
@@ -270,7 +335,7 @@ async function populateSessions() {
         return;
     }
 
-    // Directly append session cards to the main container
+    // Create session elements
     sessions.forEach(session => {
         const sessionElement = document.createElement('div');
         sessionElement.className = 'session-card';
@@ -308,88 +373,14 @@ async function populateSessions() {
 
     // Load track durations
     loadTrackDurations();
-
-    // Add track click handlers
-    document.querySelectorAll('.track-item').forEach(item => {
-        // Add click event handlers for tracks
-        item.addEventListener('click', () => {
-            const src = item.dataset.src;
-            const titleElement = item.querySelector('.track-title');
-            const originalTitle = titleElement.getAttribute('data-original-title') || titleElement.textContent;
-            
-            // Remove playing indication from all tracks
-            document.querySelectorAll('.track-item').forEach(track => {
-                track.classList.remove('playing');
-                const trackTitle = track.querySelector('.track-title');
-                if (trackTitle.getAttribute('data-original-title')) {
-                    trackTitle.textContent = trackTitle.getAttribute('data-original-title');
-                    trackTitle.removeAttribute('data-original-title');
-                }
-            });
-            
-            // Add playing indication to current track
-            item.classList.add('playing');
-            titleElement.setAttribute('data-original-title', originalTitle);
-            titleElement.textContent = `${originalTitle} (playing now)`;
-            
-            // Play the track
-            if (audio) {
-                audio.stop();
-                if (animationId) cancelAnimationFrame(animationId);
-                clearInterval(progressInterval);
-            }
-            
-            audio = new Howl({
-                src: [src],
-                html5: false, // Force Web Audio API instead of HTML5 Audio
-                format: [src.split('.').pop()],
-                volume: volumeControl.value,
-                onload: function() {
-                    const durationElement = document.getElementById('total-time');
-                    if (durationElement) {
-                        const duration = this.duration();
-                        durationElement.textContent = formatTime(duration);
-                    }
-                },
-                onplay: () => {
-                    playPauseBtn.textContent = '⏸';
-                    document.getElementById('current-track').textContent = originalTitle;
-                    
-                    // Initialize visualizer after a short delay to ensure audio is playing
-                    setTimeout(() => {
-                        initVisualizer();
-                        initSeek();
-                        
-                        if (progressInterval) {
-                            clearInterval(progressInterval);
-                        }
-                        
-                        progressInterval = setInterval(updateProgress, 100);
-                    }, 100);
-                },
-                onend: () => {
-                    // Remove playing class when song ends
-                    item.classList.remove('playing');
-                    playPauseBtn.textContent = '▶';
-                    resetProgress();
-                },
-                onpause: () => {
-                    playPauseBtn.textContent = '▶';
-                },
-                onstop: () => {
-                    // Remove playing class when song stops
-                    item.classList.remove('playing');
-                    playPauseBtn.textContent = '▶';
-                    resetProgress();
-                }
-            });
-            
-            audio.play();
-        });
-    });
-
-    // Add time display
-    addTimeDisplay();
+    
+    // If in preload mode, hide the container until everything is ready
+    if (preloadMode) {
+        container.style.opacity = '0';
+        setTimeout(() => {
+            container.style.opacity = '1';
+        }, 100);
+    }
 }
 
 // Play/pause button handler
@@ -406,25 +397,6 @@ playPauseBtn.addEventListener('click', () => {
 // Volume control
 volumeControl.addEventListener('input', (e) => {
     if (audio) audio.volume(e.target.value);
-});
-
-// Initialize on load
-window.addEventListener('load', () => {
-    // First load the sessions
-    populateSessions();
-    
-    // Wait a moment before setting up the p5 sketch to ensure DOM is ready
-    setTimeout(() => {
-        setupP5Background();
-    }, 500);
-    
-    // Other initialization
-    addTimeDisplay();
-    
-    // Handle window resize
-    window.addEventListener('resize', () => {
-        resizeCanvases();
-    });
 });
 
 // Add time display to player

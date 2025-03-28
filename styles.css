@@ -213,3 +213,56 @@ main {
     border-radius: 4px;
     overflow: hidden;
 }
+/* Loading screen styles */
+.loading-overlay {
+    position: fixed;
+    top: 0;
+    left: 0;
+    width: 100%;
+    height: 100%;
+    background-color: var(--bg-color);
+    z-index: 9999;
+    display: flex;
+    justify-content: center;
+    align-items: center;
+    transition: opacity 0.5s ease;
+}
+
+.loading-overlay.fade-out {
+    opacity: 0;
+}
+
+.loading-content {
+    text-align: center;
+}
+
+.loading-spinner {
+    width: 50px;
+    height: 50px;
+    border: 5px solid rgba(255, 255, 255, 0.1);
+    border-radius: 50%;
+    border-top-color: var(--accent-color);
+    animation: spin 1s ease-in-out infinite;
+    margin: 0 auto 20px;
+}
+
+.loading-text {
+    color: var(--text-color);
+    font-size: 1.2rem;
+}
+
+@keyframes spin {
+    to { transform: rotate(360deg); }
+}
+
+/* Initially hide content and fade it in */
+body:not(.content-loaded) main,
+body:not(.content-loaded) .player-container {
+    opacity: 0;
+}
+
+body.content-loaded main,
+body.content-loaded .player-container {
+    opacity: 1;
+    transition: opacity 0.5s ease;
+}
