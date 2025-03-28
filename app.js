@@ -373,7 +373,7 @@ async function populateSessions(preloadMode = false) {
 
     // Load track durations
     loadTrackDurations();
-    
+
     // Add track click handlers
     document.querySelectorAll('.track-item').forEach(item => {
         // Add click event handlers for tracks
@@ -384,12 +384,10 @@ async function populateSessions(preloadMode = false) {
             
             // Remove playing indication from all tracks
             document.querySelectorAll('.track-item').forEach(track => {
-                track.classList.remove('playing');
                 const trackTitle = track.querySelector('.track-title');
-                if (trackTitle.getAttribute('data-original-title')) {
-                    trackTitle.textContent = trackTitle.getAttribute('data-original-title');
-                    trackTitle.removeAttribute('data-original-title');
-                }
+                trackTitle.textContent = trackTitle.getAttribute('data-original-title') || trackTitle.textContent;
+                trackTitle.removeAttribute('data-original-title');
+                track.classList.remove('playing');
             });
             
             // Add playing indication to current track
@@ -432,34 +430,39 @@ async function populateSessions(preloadMode = false) {
                         progressInterval = setInterval(updateProgress, 100);
                     }, 100);
                 },
-                onend: () => {
-                    // Remove playing class when song ends
-                    item.classList.remove('playing');
-                    playPauseBtn.textContent = '▶';
-                    resetProgress();
+                onloaderror: function(id, error) {
+                    console.error('Error loading audio:', error);
+                    alert('Error loading audio file. Please try another track.');
                 },
                 onpause: () => {
                     playPauseBtn.textContent = '▶';
                 },
-                onstop: () => {
-                    // Remove playing class when song stops
-                    item.classList.remove('playing');
+                onend: () => {
                     playPauseBtn.textContent = '▶';
+                    clearInterval(progressInterval);
                     resetProgress();
+                },
+                onstop: () => {
+                    playPauseBtn.textContent = '▶';
+                    clearInterval(progressInterval);
+                    resetProgress();
+                    
+                    // Remove playing indication from all tracks when stopped
+                    document.querySelectorAll('.track-item').forEach(track => {
+                        const trackTitle = track.querySelector('.track-title');
+                        trackTitle.textContent = trackTitle.getAttribute('data-original-title') || trackTitle.textContent;
+                        trackTitle.removeAttribute('data-original-title');
+                        track.classList.remove('playing');
+                    });
                 }
             });
             
             audio.play();
         });
     });
-    
-    // If in preload mode, hide the container until everything is ready
-    if (preloadMode) {
-        container.style.opacity = '0';
-        setTimeout(() => {
-            container.style.opacity = '1';
-        }, 100);
-    }
+
+    // Add time display
+    addTimeDisplay();
 }
 
 // Play/pause button handler
@@ -515,15 +518,19 @@ function setupP5Background() {
             // Create full-screen canvas
             const canvas = p.createCanvas(window.innerWidth, window.innerHeight);
             
-            // Force the canvas to fill the screen with !important flags
-            canvas.elt.style.position = 'fixed !important';
-            canvas.elt.style.top = '0 !important';
-            canvas.elt.style.left = '0 !important';
-            canvas.elt.style.width = '100vw !important';
-            canvas.elt.style.height = '100vh !important';
-            canvas.elt.style.zIndex = '-1 !important';
-            canvas.elt.style.opacity = '0.7';
+            // Add these styles immediately
+            canvas.elt.style.position = 'fixed';
+            canvas.elt.style.top = '0';
+            canvas.elt.style.left = '0';
+            canvas.elt.style.zIndex = '-1';
             canvas.elt.style.pointerEvents = 'none';
+            // Position the canvas as a fixed background with important flag
+            canvas.style('position', 'fixed !important');
+            canvas.style('top', '0');
+            canvas.style('left', '0');
+            canvas.style('z-index', '-1'); // Behind all content
+            canvas.style('opacity', '0.7'); // Slightly faded
+            canvas.style('pointer-events', 'none'); // Allow clicking through the canvas
             
             // Add a class to identify our canvas
             canvas.class('background-visualization');
