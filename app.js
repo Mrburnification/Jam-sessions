@@ -161,18 +161,16 @@ async function fetchDirectory(path) {
 async function getSessionComment(dateDir) {
     try {
         const files = await fetchDirectory(dateDir.path);
-        const commentFile = files.find(file => 
-            file.name.toLowerCase() === 'comment.txt' ||
-            file.name.toLowerCase() === 'comments.txt'
-        );
+        const commentFile = files.find(file => file.name.toLowerCase() === 'comment.txt');
         
         if (commentFile && commentFile.download_url) {
-            const response = await fetch(commentFile.download_url);
-            if (response.ok) {
-                let text = await response.text();
-                // Remove any special characters that might break HTML
-                text = text.replace(/[<>]/g, '');
-                return text;
+            try {
+                const response = await fetch(commentFile.download_url);
+                if (response.ok) {
+                    return await response.text();
+                }
+            } catch (fetchError) {
+                console.error('Error fetching comment file:', fetchError);
             }
         }
         return null;
@@ -257,14 +255,79 @@ function loadTrackDurations() {
     });
 }
 
-// Populate sessions in the UI
-async function populateSessions() {
+// Add a loading screen function
+function showLoadingScreen() {
+    // Create loading overlay
+    const loadingOverlay = document.createElement('div');
+    loadingOverlay.className = 'loading-overlay';
+    loadingOverlay.innerHTML = `
+        <div class="loading-content">
+            <div class="loading-spinner"></div>
+            <div class="loading-text">Loading PBT Jam Archive...</div>
+        </div>
+    `;
+    document.body.appendChild(loadingOverlay);
+    return loadingOverlay;
+}
+
+// Function to hide loading screen with fade out
+function hideLoadingScreen(loadingOverlay) {
+    loadingOverlay.classList.add('fade-out');
+    setTimeout(() => {
+        if (loadingOverlay.parentNode) {
+            loadingOverlay.parentNode.removeChild(loadingOverlay);
+        }
+    }, 500); // Match this with CSS transition time
+}
+
+// Update the window load event handler
+window.addEventListener('load', async () => {
+    // Show loading screen
+    const loadingOverlay = showLoadingScreen();
+    
+    // Load sessions first but don't display yet
+    await populateSessions(true); // Pass true to indicate we're in preload mode
+    
+    // Set up the p5 sketch
+    const canvasReady = new Promise(resolve => {
+        setTimeout(() => {
+            setupP5Background();
+            resolve();
+        }, 100);
+    });
+    
+    // Wait for canvas to be ready
+    await canvasReady;
+    
+    // Short delay to ensure everything is rendered
+    await new Promise(resolve => setTimeout(resolve, 300));
+    
+    // Now reveal the content
+    document.body.classList.add('content-loaded');
+    
+    // Hide loading screen
+    hideLoadingScreen(loadingOverlay);
+    
+    // Add time display
+    addTimeDisplay();
+    
+    // Handle window resize
+    window.addEventListener('resize', () => {
+        resizeCanvases();
+    });
+});
+
+// Update populateSessions to support preloading
+async function populateSessions(preloadMode = false) {
     const container = document.getElementById('sessions-list');
-    container.innerHTML = '<div class="loading">Loading sessions...</div>';
+    
+    if (!preloadMode) {
+        container.innerHTML = '<div class="loading">Loading sessions...</div>';
+    }
 
     const sessions = await getSessions();
     
-    // Clear the loading message
+    // Clear the container
     container.innerHTML = '';
 
     if (sessions.length === 0) {
@@ -272,7 +335,7 @@ async function populateSessions() {
         return;
     }
 
-    // Directly append session cards to the main container
+    // Create session elements
     sessions.forEach(session => {
         const sessionElement = document.createElement('div');
         sessionElement.className = 'session-card';
@@ -310,7 +373,7 @@ async function populateSessions() {
 
     // Load track durations
     loadTrackDurations();
-
+    
     // Add track click handlers
     document.querySelectorAll('.track-item').forEach(item => {
         // Add click event handlers for tracks
@@ -321,10 +384,12 @@ async function populateSessions() {
             
             // Remove playing indication from all tracks
             document.querySelectorAll('.track-item').forEach(track => {
-                const trackTitle = track.querySelector('.track-title');
-                trackTitle.textContent = trackTitle.getAttribute('data-original-title') || trackTitle.textContent;
-                trackTitle.removeAttribute('data-original-title');
                 track.classList.remove('playing');
+                const trackTitle = track.querySelector('.track-title');
+                if (trackTitle.getAttribute('data-original-title')) {
+                    trackTitle.textContent = trackTitle.getAttribute('data-original-title');
+                    trackTitle.removeAttribute('data-original-title');
+                }
             });
             
             // Add playing indication to current track
@@ -367,39 +432,34 @@ async function populateSessions() {
                         progressInterval = setInterval(updateProgress, 100);
                     }, 100);
                 },
-                onloaderror: function(id, error) {
-                    console.error('Error loading audio:', error);
-                    alert('Error loading audio file. Please try another track.');
+                onend: () => {
+                    // Remove playing class when song ends
+                    item.classList.remove('playing');
+                    playPauseBtn.textContent = '▶';
+                    resetProgress();
                 },
                 onpause: () => {
                     playPauseBtn.textContent = '▶';
                 },
-                onend: () => {
-                    playPauseBtn.textContent = '▶';
-                    clearInterval(progressInterval);
-                    resetProgress();
-                },
                 onstop: () => {
+                    // Remove playing class when song stops
+                    item.classList.remove('playing');
                     playPauseBtn.textContent = '▶';
-                    clearInterval(progressInterval);
                     resetProgress();
-                    
-                    // Remove playing indication from all tracks when stopped
-                    document.querySelectorAll('.track-item').forEach(track => {
-                        const trackTitle = track.querySelector('.track-title');
-                        trackTitle.textContent = trackTitle.getAttribute('data-original-title') || trackTitle.textContent;
-                        trackTitle.removeAttribute('data-original-title');
-                        track.classList.remove('playing');
-                    });
                 }
             });
             
             audio.play();
         });
     });
-
-    // Add time display
-    addTimeDisplay();
+    
+    // If in preload mode, hide the container until everything is ready
+    if (preloadMode) {
+        container.style.opacity = '0';
+        setTimeout(() => {
+            container.style.opacity = '1';
+        }, 100);
+    }
 }
 
 // Play/pause button handler
@@ -416,25 +476,6 @@ playPauseBtn.addEventListener('click', () => {
 // Volume control
 volumeControl.addEventListener('input', (e) => {
     if (audio) audio.volume(e.target.value);
-});
-
-// Initialize on load
-window.addEventListener('load', () => {
-    // First load the sessions
-    populateSessions();
-    
-    // Wait a moment before setting up the p5 sketch to ensure DOM is ready
-    setTimeout(() => {
-        setupP5Background();
-    }, 500);
-    
-    // Other initialization
-    addTimeDisplay();
-    
-    // Handle window resize
-    window.addEventListener('resize', () => {
-        resizeCanvases();
-    });
 });
 
 // Add time display to player
@@ -474,22 +515,21 @@ function setupP5Background() {
             // Create full-screen canvas
             const canvas = p.createCanvas(window.innerWidth, window.innerHeight);
             
-            // Add these styles immediately
-            canvas.elt.style.position = 'fixed';
-            canvas.elt.style.top = '0';
-            canvas.elt.style.left = '0';
-            canvas.elt.style.zIndex = '-1';
+            // Force the canvas to fill the screen with !important flags
+            canvas.elt.style.position = 'fixed !important';
+            canvas.elt.style.top = '0 !important';
+            canvas.elt.style.left = '0 !important';
+            canvas.elt.style.width = '100vw !important';
+            canvas.elt.style.height = '100vh !important';
+            canvas.elt.style.zIndex = '-1 !important';
+            canvas.elt.style.opacity = '0.7';
             canvas.elt.style.pointerEvents = 'none';
-            // Position the canvas as a fixed background with important flag
-            canvas.style('position', 'fixed !important');
-            canvas.style('top', '0');
-            canvas.style('left', '0');
-            canvas.style('z-index', '-1'); // Behind all content
-            canvas.style('opacity', '0.7'); // Slightly faded
-            canvas.style('pointer-events', 'none'); // Allow clicking through the canvas
             
             // Add a class to identify our canvas
             canvas.class('background-visualization');
+            
+            // Force a resize to ensure proper dimensions
+            p.windowResized();
             
             // Create debug toggle button
             debugButton = p.createButton('Debug');
@@ -563,15 +603,22 @@ function setupP5Background() {
                 });
                 if (energyHistory.length > 50) energyHistory.shift();
             } else {
-                // When no music is playing, set all values to zero
-                targetAmplitude *= 0.9;
-                bassEnergy = 0;
-                midEnergy = 0;
-                trebleEnergy = 0;
+                // Gentle animation when no audio is playing
+                targetAmplitude = 0.5 + Math.sin(p.frameCount * 0.01) * 0.2;
                 
-                // Clear energy history when music stops
-                if (energyHistory.length > 0) {
-                    energyHistory = [];
+                // Create gentle color cycling
+                bassEnergy = 0.3 + Math.sin(p.frameCount * 0.005) * 0.1;
+                midEnergy = 0.3 + Math.sin(p.frameCount * 0.007 + 2) * 0.1;
+                trebleEnergy = 0.3 + Math.sin(p.frameCount * 0.003 + 4) * 0.1;
+                
+                // Add to energy history for idle animation
+                if (p.frameCount % 5 === 0) {
+                    energyHistory.push({
+                        bass: bassEnergy,
+                        mid: midEnergy,
+                        treble: trebleEnergy
+                    });
+                    if (energyHistory.length > 50) energyHistory.shift();
                 }
             }
 
@@ -592,12 +639,8 @@ function setupP5Background() {
             
             // Calculate dynamic parameters
             const wavelength = p.map(midEnergy, 0, 1, 100, 20);
-            const waveHeight = audio && audio.playing() 
-            ? smoothedAmplitude * p.height/8 
-            : 0;
-            const dotSize = audio && audio.playing() 
-            ? p.map(smoothedAmplitude, 0, 4, 2, 6) 
-            : 0;
+            const waveHeight = smoothedAmplitude * p.height/8; // Reduced height for background
+            dotSize = p.map(smoothedAmplitude, 0, 4, 2, 6);
             waveSpeed = p.map(trebleEnergy, 0, 1, 0.1, 0.5); // Slower for background
             
             // Add pulsing glow effect
