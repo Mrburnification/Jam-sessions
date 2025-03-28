@@ -161,18 +161,16 @@ async function fetchDirectory(path) {
 async function getSessionComment(dateDir) {
     try {
         const files = await fetchDirectory(dateDir.path);
-        const commentFile = files.find(file => 
-            file.name.toLowerCase() === 'comment.txt' ||
-            file.name.toLowerCase() === 'comments.txt'
-        );
+        const commentFile = files.find(file => file.name.toLowerCase() === 'comment.txt');
         
         if (commentFile && commentFile.download_url) {
-            const response = await fetch(commentFile.download_url);
-            if (response.ok) {
-                let text = await response.text();
-                // Remove any special characters that might break HTML
-                text = text.replace(/[<>]/g, '');
-                return text;
+            try {
+                const response = await fetch(commentFile.download_url);
+                if (response.ok) {
+                    return await response.text();
+                }
+            } catch (fetchError) {
+                console.error('Error fetching comment file:', fetchError);
             }
         }
         return null;
@@ -321,10 +319,12 @@ async function populateSessions() {
             
             // Remove playing indication from all tracks
             document.querySelectorAll('.track-item').forEach(track => {
-                const trackTitle = track.querySelector('.track-title');
-                trackTitle.textContent = trackTitle.getAttribute('data-original-title') || trackTitle.textContent;
-                trackTitle.removeAttribute('data-original-title');
                 track.classList.remove('playing');
+                const trackTitle = track.querySelector('.track-title');
+                if (trackTitle.getAttribute('data-original-title')) {
+                    trackTitle.textContent = trackTitle.getAttribute('data-original-title');
+                    trackTitle.removeAttribute('data-original-title');
+                }
             });
             
             // Add playing indication to current track
@@ -367,30 +367,20 @@ async function populateSessions() {
                         progressInterval = setInterval(updateProgress, 100);
                     }, 100);
                 },
-                onloaderror: function(id, error) {
-                    console.error('Error loading audio:', error);
-                    alert('Error loading audio file. Please try another track.');
+                onend: () => {
+                    // Remove playing class when song ends
+                    item.classList.remove('playing');
+                    playPauseBtn.textContent = '▶';
+                    resetProgress();
                 },
                 onpause: () => {
                     playPauseBtn.textContent = '▶';
                 },
-                onend: () => {
-                    playPauseBtn.textContent = '▶';
-                    clearInterval(progressInterval);
-                    resetProgress();
-                },
                 onstop: () => {
+                    // Remove playing class when song stops
+                    item.classList.remove('playing');
                     playPauseBtn.textContent = '▶';
-                    clearInterval(progressInterval);
                     resetProgress();
-                    
-                    // Remove playing indication from all tracks when stopped
-                    document.querySelectorAll('.track-item').forEach(track => {
-                        const trackTitle = track.querySelector('.track-title');
-                        trackTitle.textContent = trackTitle.getAttribute('data-original-title') || trackTitle.textContent;
-                        trackTitle.removeAttribute('data-original-title');
-                        track.classList.remove('playing');
-                    });
                 }
             });
             
@@ -474,12 +464,6 @@ function setupP5Background() {
             // Create full-screen canvas
             const canvas = p.createCanvas(window.innerWidth, window.innerHeight);
             
-            // Add these styles immediately
-            canvas.elt.style.position = 'fixed';
-            canvas.elt.style.top = '0';
-            canvas.elt.style.left = '0';
-            canvas.elt.style.zIndex = '-1';
-            canvas.elt.style.pointerEvents = 'none';
             // Position the canvas as a fixed background with important flag
             canvas.style('position', 'fixed !important');
             canvas.style('top', '0');
@@ -563,15 +547,22 @@ function setupP5Background() {
                 });
                 if (energyHistory.length > 50) energyHistory.shift();
             } else {
-                // When no music is playing, set all values to zero
-                targetAmplitude *= 0.9;
-                bassEnergy = 0;
-                midEnergy = 0;
-                trebleEnergy = 0;
+                // Gentle animation when no audio is playing
+                targetAmplitude = 0.5 + Math.sin(p.frameCount * 0.01) * 0.2;
                 
-                // Clear energy history when music stops
-                if (energyHistory.length > 0) {
-                    energyHistory = [];
+                // Create gentle color cycling
+                bassEnergy = 0.3 + Math.sin(p.frameCount * 0.005) * 0.1;
+                midEnergy = 0.3 + Math.sin(p.frameCount * 0.007 + 2) * 0.1;
+                trebleEnergy = 0.3 + Math.sin(p.frameCount * 0.003 + 4) * 0.1;
+                
+                // Add to energy history for idle animation
+                if (p.frameCount % 5 === 0) {
+                    energyHistory.push({
+                        bass: bassEnergy,
+                        mid: midEnergy,
+                        treble: trebleEnergy
+                    });
+                    if (energyHistory.length > 50) energyHistory.shift();
                 }
             }
 
@@ -592,12 +583,8 @@ function setupP5Background() {
             
             // Calculate dynamic parameters
             const wavelength = p.map(midEnergy, 0, 1, 100, 20);
-            const waveHeight = audio && audio.playing() 
-            ? smoothedAmplitude * p.height/8 
-            : 0;
-            const dotSize = audio && audio.playing() 
-            ? p.map(smoothedAmplitude, 0, 4, 2, 6) 
-            : 0;
+            const waveHeight = smoothedAmplitude * p.height/8; // Reduced height for background
+            dotSize = p.map(smoothedAmplitude, 0, 4, 2, 6);
             waveSpeed = p.map(trebleEnergy, 0, 1, 0.1, 0.5); // Slower for background
             
             // Add pulsing glow effect

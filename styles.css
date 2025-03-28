@@ -110,16 +110,6 @@ main {
     overflow: hidden;
 }
 */
-
-.session-comment {
-    display: block !important; /* Force show comments */
-    white-space: pre-wrap; /* Preserve line breaks from text file */
-    font-style: normal;
-    font-size: 0.9em;
-    margin-top: 0.5rem;
-    opacity: 0.8;
-}
-
 .player-controls {
     display: flex;
     flex-direction: column;
