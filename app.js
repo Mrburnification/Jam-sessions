@@ -3,721 +3,347 @@ const GITHUB_USER = 'Mrburnification';
 const REPO_NAME = 'Jam-sessions';
 const AUDIO_BASE_URL = `https://${GITHUB_USER}.github.io/${REPO_NAME}/audio`;
 
-// Audio player and visualizer variables
+// Audio system variables
 let audio;
 let analyser;
 let animationId;
 let progressInterval;
 let p5sketch;
-let circles = [];
-let hue = 1;
-let audioData = new Uint8Array(1024);
+let audioCompressor;
+let waveformCanvas, waveformCtx;
 
 // DOM elements
 const playPauseBtn = document.getElementById('play-pause');
-const volumeControl = document.getElementById('volume');
 const progressBar = document.getElementById('progress');
 const progressContainer = document.querySelector('.progress-container');
-const progressDot = document.createElement('div');
-progressDot.className = 'progress-dot';
-progressBar.appendChild(progressDot);
+let waveformContainer;
 
-// Resize canvas when window resizes
-function resizeCanvases() {
-    if (p5sketch) {
-        // Resize to full window dimensions
-        p5sketch.resizeCanvas(window.innerWidth, window.innerHeight);
-        
-        // Make sure the canvas has the correct styles
-        const canvas = document.querySelector('.background-visualization');
-        if (canvas) {
-            canvas.style.position = 'fixed';
-            canvas.style.top = '0';
-            canvas.style.left = '0';
-            canvas.style.width = '100vw';
-            canvas.style.height = '100vh';
-            canvas.style.zIndex = '-1';
-        }
+// Initialize waveform canvas - now with null check
+function initWaveform() {
+    waveformContainer = document.querySelector('.waveform-container');
+    if (!waveformContainer) {
+        console.error('Waveform container not found!');
+        return;
+    }
+    
+    waveformCanvas = document.createElement('canvas');
+    waveformCtx = waveformCanvas.getContext('2d');
+    waveformCanvas.className = 'waveform-canvas';
+    waveformContainer.appendChild(waveformCanvas);
+    updateWaveformSize();
+}
+
+function updateWaveformSize() {
+    if (waveformCanvas && progressContainer) {
+        waveformCanvas.width = progressContainer.offsetWidth;
+        waveformCanvas.height = progressContainer.offsetHeight;
     }
 }
 
-// Initialize visualizer when audio plays
+// Modified initialization to wait for DOM
+document.addEventListener('DOMContentLoaded', () => {
+    initWaveform();
+    setupVisualizer();
+    
+    window.addEventListener('resize', () => {
+        updateWaveformSize();
+        if (p5sketch) p5sketch.resizeCanvas(window.innerWidth, window.innerHeight);
+    });
+
+    playPauseBtn.addEventListener('click', () => {
+        if (!audio) return;
+        audio.playing() ? audio.pause() : audio.play();
+    });
+
+    // Start loading content
+    populateSessions();
+});
+
+// Resize handlers
+window.addEventListener('resize', () => {
+    updateWaveformSize();
+    if (p5sketch) p5sketch.resizeCanvas(window.innerWidth, window.innerHeight);
+});
+
+// Audio visualizer initialization
 function initVisualizer() {
     try {
-        // Get the Web Audio API context from Howler
         const audioContext = Howler.ctx;
         
-        // Create analyzer if it doesn't exist
         if (!analyser) {
             analyser = audioContext.createAnalyser();
-            analyser.fftSize = 2048; // Increased for better resolution
+            analyser.fftSize = 2048;
             analyser.smoothingTimeConstant = 0.8;
         }
-        
-        // Connect the analyzer to Howler's master gain node
-        // First disconnect any existing connections to avoid duplicates
-        try {
-            Howler.masterGain.disconnect(analyser);
-        } catch (e) {
-            // Ignore disconnection errors
+
+        if (!audioCompressor) {
+            audioCompressor = audioContext.createDynamicsCompressor();
+            audioCompressor.threshold.value = -30;
+            audioCompressor.knee.value = 40;
+            audioCompressor.ratio.value = 20;
+            audioCompressor.attack.value = 0.01;
+            audioCompressor.release.value = 0.25;
+            audioCompressor.connect(audioContext.destination);
         }
-        
-        // Connect the master gain to the analyzer
+
+        Howler.masterGain.disconnect();
         Howler.masterGain.connect(analyser);
+        Howler.masterGain.connect(audioCompressor);
         
-        console.log("Audio analyzer initialized successfully");
-        
-        // Test if we're getting data
-        const testData = new Uint8Array(analyser.frequencyBinCount);
-        analyser.getByteFrequencyData(testData);
-        console.log("Initial frequency data sample:", testData.slice(0, 10));
+        const canvas = document.querySelector('.background-visualization');
+        if (canvas) canvas.style.opacity = '0.7';
     } catch (error) {
-        console.error("Error initializing audio analyzer:", error);
+        console.error("Visualizer error:", error);
     }
 }
 
-// Format time in MM:SS format
+// Progress and waveform functions
 function formatTime(seconds) {
-    if (!seconds || isNaN(seconds) || seconds === Infinity) {
-        return '0:00';
-    }
-    
+    if (!seconds || isNaN(seconds)) return '0:00';
     const minutes = Math.floor(seconds / 60);
-    const remainingSeconds = Math.floor(seconds % 60);
-    return `${minutes}:${remainingSeconds < 10 ? '0' : ''}${remainingSeconds}`;
+    const secs = Math.floor(seconds % 60);
+    return `${minutes}:${secs.toString().padStart(2, '0')}`;
 }
 
-// Update progress bar and time display
 function updateProgress() {
-    if (!audio) return;
+    if (!audio || !audio.playing()) return;
     
-    try {
-        const seek = audio.seek() || 0;
-        const duration = audio.duration() || 1;
-        
-        // Validate values to prevent NaN or Infinity
-        if (isNaN(seek) || isNaN(duration) || duration === 0) {
-            return;
-        }
-        
-        const progressPercentage = Math.min((seek / duration) * 100, 100); // Cap at 100%
-        
-        // Update progress bar width
-        progressBar.style.width = `${progressPercentage}%`;
-        
-        // Make dot visible and active
-        progressDot.classList.add('active');
-        
-        // Update current time display if it exists
-        const currentTimeElement = document.getElementById('current-time');
-        if (currentTimeElement) {
-            currentTimeElement.textContent = formatTime(seek);
-        }
-    } catch (error) {
-        console.error('Error updating progress:', error);
-    }
+    const seek = audio.seek() || 0;
+    const duration = audio.duration() || 1;
+    const progress = (seek / duration) * 100;
+    
+    progressBar.style.width = `${progress}%`;
+    document.getElementById('current-time').textContent = formatTime(seek);
+    drawWaveform();
 }
 
-// Add seek functionality to progress bar
-function initSeek() {
-    progressContainer.addEventListener('click', (e) => {
-        if (!audio) return;
+function drawWaveform() {
+    if (!analyser || !waveformCtx) return;
+    
+    const dataArray = new Uint8Array(analyser.frequencyBinCount);
+    analyser.getByteFrequencyData(dataArray);
+    
+    waveformCtx.clearRect(0, 0, waveformCanvas.width, waveformCanvas.height);
+    waveformCtx.fillStyle = 'rgba(255, 255, 255, 0.1)';
+    waveformCtx.fillRect(0, 0, waveformCanvas.width, waveformCanvas.height);
+    
+    const barWidth = (waveformCanvas.width / dataArray.length) * 2.5;
+    let x = 0;
+    
+    dataArray.forEach(value => {
+        const height = (value / 255) * waveformCanvas.height;
+        const gradient = waveformCtx.createLinearGradient(0, 0, 0, waveformCanvas.height);
+        gradient.addColorStop(0, '#1db954');
+        gradient.addColorStop(1, '#14833b');
         
-        const clickPosition = e.offsetX / progressContainer.offsetWidth;
-        const duration = audio.duration();
-        
-        audio.seek(duration * clickPosition);
+        waveformCtx.fillStyle = gradient;
+        waveformCtx.fillRect(x, waveformCanvas.height - height, barWidth, height);
+        x += barWidth + 1;
     });
 }
 
-function resetProgress() {
-    progressBar.style.width = '0%';
-    progressDot.classList.remove('active');
-}
-
-// Fetch directory contents from GitHub
+// Session data handling
 async function fetchDirectory(path) {
     try {
         const response = await fetch(
             `https://api.github.com/repos/${GITHUB_USER}/${REPO_NAME}/contents/${path}`
         );
-        
-        if (!response.ok) {
-            console.error(`GitHub API error: ${response.status} ${response.statusText}`);
-            const errorData = await response.json();
-            console.error('Error details:', errorData);
-            return [];
-        }
-        
-        const data = await response.json();
-        return Array.isArray(data) ? data : [];
+        return response.ok ? await response.json() : [];
     } catch (error) {
-        console.error('Error fetching directory:', error);
+        console.error('Fetch error:', error);
         return [];
     }
 }
 
-// Fetch and read comment.txt file
+// Fetch comment.txt from session directory
 async function getSessionComment(dateDir) {
     try {
         const files = await fetchDirectory(dateDir.path);
         const commentFile = files.find(file => file.name.toLowerCase() === 'comment.txt');
         
         if (commentFile && commentFile.download_url) {
-            try {
-                const response = await fetch(commentFile.download_url);
-                if (response.ok) {
-                    return await response.text();
-                }
-            } catch (fetchError) {
-                console.error('Error fetching comment file:', fetchError);
+            const response = await fetch(commentFile.download_url);
+            if (response.ok) {
+                return await response.text();
             }
         }
         return null;
     } catch (error) {
-        console.error('Error getting session comment:', error);
+        console.error('Error getting comment:', error);
         return null;
     }
 }
 
-// Get all sessions with tracks
 async function getSessions() {
     try {
-        console.log('Fetching sessions...');
-        const sessions = [];
         const dates = await fetchDirectory('audio');
+        const sessions = [];
         
-        console.log('Found directories:', dates);
-        
-        // Ensure dates is an array before filtering
-        if (!Array.isArray(dates)) {
-            console.error('Expected array of directories but got:', dates);
-            return [];
-        }
-
-        for (const dateDir of dates.filter(d => d && d.type === 'dir')) {
-            console.log('Processing directory:', dateDir.name);
+        for (const dateDir of dates.filter(d => d.type === 'dir')) {
             const tracks = await fetchDirectory(dateDir.path);
-            console.log('Found tracks:', tracks);
-            
-            // Ensure tracks is an array
-            if (!Array.isArray(tracks)) {
-                console.error('Expected array of tracks but got:', tracks);
-                continue;
-            }
-            
             const validTracks = tracks
-                .filter(t => t && t.name && (t.name.endsWith('.mp3') || t.name.endsWith('.m4a')))
-                .map(track => ({
-                    title: track.name.replace('.mp3', '').replace('.m4a', ''),
-                    url: `${AUDIO_BASE_URL}/${dateDir.name}/${track.name}`
+                .filter(t => t.name.match(/\.(mp3|m4a)$/i))
+                .map(t => ({
+                    title: t.name.replace(/\..+$/, ''),
+                    url: `${AUDIO_BASE_URL}/${dateDir.name}/${t.name}`
                 }));
-
+            
             if (validTracks.length > 0) {
-                const comment = await getSessionComment(dateDir);
-                console.log('Comment for', dateDir.name, ':', comment);
-                
                 sessions.push({
                     date: dateDir.name,
                     tracks: validTracks,
-                    comment: comment
+                    comment: await getSessionComment(dateDir)
                 });
             }
         }
-
-        console.log('Final sessions:', sessions);
+        
         return sessions.sort((a, b) => new Date(b.date) - new Date(a.date));
     } catch (error) {
-        console.error('Error loading sessions:', error);
+        console.error('Session error:', error);
         return [];
     }
 }
 
-// Load track durations
-function loadTrackDurations() {
-    document.querySelectorAll('.track-item').forEach(item => {
-        const src = item.dataset.src;
-        const durationElement = item.querySelector('.track-duration');
+// Player controls
+function resetPlaybackState() {
+    playPauseBtn.textContent = '▶';
+    clearInterval(progressInterval);
+    progressBar.style.width = '0%';
+    document.querySelectorAll('.track-item').forEach(track => {
+        track.classList.remove('playing');
+        const title = track.querySelector('.track-title');
+        title.textContent = title.textContent.replace(' (playing)', '');
+    });
+}
+
+// Session population
+async function populateSessions() {
+    const container = document.getElementById('sessions-list');
+    container.innerHTML = '<div class="loading">Loading sessions...</div>';
+    
+    const sessions = await getSessions();
+    container.innerHTML = '';
+    
+    sessions.forEach(session => {
+        const sessionHTML = `
+            <div class="session-card">
+                <div class="session-date">
+                    ${new Date(session.date).toLocaleDateString('en-US', { 
+                        year: 'numeric', 
+                        month: 'long', 
+                        day: 'numeric' 
+                    })}
+                </div>
+                ${session.comment ? `<div class="session-comment">${session.comment}</div>` : ''}
+                <ul class="track-list">
+                    ${session.tracks.map(track => `
+                        <li class="track-item" data-src="${track.url}">
+                            <div class="track-info">
+                                <span class="play-icon">▶</span>
+                                <span class="track-title">${track.title}</span>
+                            </div>
+                            <span class="track-duration">0:00</span>
+                        </li>
+                    `).join('')}
+                </ul>
+            </div>
+        `;
+        container.insertAdjacentHTML('beforeend', sessionHTML);
+    });
+
+    // Event handling
+    container.addEventListener('click', handleTrackClick);
+    container.addEventListener('touchstart', handleTrackClick);
+
+    function handleTrackClick(e) {
+        const trackItem = e.target.closest('.track-item');
+        if (!trackItem) return;
         
-        // Create temporary Howl to get duration
-        const tempHowl = new Howl({
+        const src = trackItem.dataset.src;
+        const titleElement = trackItem.querySelector('.track-title');
+        const originalTitle = titleElement.textContent.replace(' (playing)', '');
+        
+        // Update track states
+        document.querySelectorAll('.track-item').forEach(t => {
+            t.classList.remove('playing');
+            t.querySelector('.track-title').textContent = 
+                t.querySelector('.track-title').textContent.replace(' (playing)', '');
+        });
+        
+        trackItem.classList.add('playing');
+        titleElement.textContent = `${originalTitle} (playing)`;
+
+        // Audio handling
+        if (audio) audio.stop();
+        audio = new Howl({
             src: [src],
             html5: true,
-            preload: true,
             format: [src.split('.').pop()],
-            onload: function() {
-                durationElement.textContent = formatTime(this.duration());
+            onplay: () => {
+                playPauseBtn.textContent = '⏸';
+                initVisualizer();
+                progressInterval = setInterval(updateProgress, 100);
             },
-            onloaderror: function() {
-                durationElement.textContent = '--:--';
-            }
-        });
-    });
-}
-
-// Add a loading screen function
-function showLoadingScreen() {
-    // Create loading overlay
-    const loadingOverlay = document.createElement('div');
-    loadingOverlay.className = 'loading-overlay';
-    loadingOverlay.innerHTML = `
-        <div class="loading-content">
-            <div class="loading-spinner"></div>
-            <div class="loading-text">Loading PBT Jam Archive...</div>
-        </div>
-    `;
-    document.body.appendChild(loadingOverlay);
-    return loadingOverlay;
-}
-
-// Function to hide loading screen with fade out
-function hideLoadingScreen(loadingOverlay) {
-    loadingOverlay.classList.add('fade-out');
-    setTimeout(() => {
-        if (loadingOverlay.parentNode) {
-            loadingOverlay.parentNode.removeChild(loadingOverlay);
-        }
-    }, 500); // Match this with CSS transition time
-}
-
-// Update the window load event handler
-window.addEventListener('load', async () => {
-    // Show loading screen
-    const loadingOverlay = showLoadingScreen();
-    
-    try {
-        // Load sessions first
-        await populateSessions(); // Remove the preload mode parameter
-        
-        // Set up the p5 sketch
-        setupP5Background();
-        
-        // Short delay to ensure everything is rendered
-        await new Promise(resolve => setTimeout(resolve, 300));
-        
-        // Now reveal the content
-        document.body.classList.add('content-loaded');
-    } catch (error) {
-        console.error('Initialization error:', error);
-        container.innerHTML = '<div class="loading">Error loading content</div>';
-    } finally {
-        // Hide loading screen
-        hideLoadingScreen(loadingOverlay);
-    }
-    
-    // Handle window resize
-    window.addEventListener('resize', () => {
-        resizeCanvases();
-    });
-});
-
-// Update populateSessions to support preloading
-async function populateSessions(preloadMode = false) {
-    const container = document.getElementById('sessions-list');
-    
-    if (!preloadMode) {
-        container.innerHTML = '<div class="loading">Loading sessions...</div>';
+            onend: resetPlaybackState,
+            onstop: resetPlaybackState,
+            onpause: () => playPauseBtn.textContent = '▶'
+        }).play();
     }
 
-    const sessions = await getSessions();
-    
-    // Clear the container
-    container.innerHTML = '';
-
-    if (sessions.length === 0) {
-        container.innerHTML = '<div class="loading">No sessions found</div>';
-        return;
-    }
-
-    // Create session elements
-    sessions.forEach(session => {
-        const sessionElement = document.createElement('div');
-        sessionElement.className = 'session-card';
-        
-        // Create HTML with comment section if available
-        let sessionHTML = `
-            <div class="session-date">${new Date(session.date).toLocaleDateString('en-US', { 
-                year: 'numeric', 
-                month: 'long', 
-                day: 'numeric' 
-            })}</div>`;
-            
-        // Add comment if available
-        if (session.comment && session.comment.trim()) {
-            sessionHTML += `<div class="session-comment">${session.comment}</div>`;
-        }
-        
-        sessionHTML += `
-            <ul class="track-list">
-                ${session.tracks.map(track => `
-                    <li class="track-item" data-src="${track.url}">
-                        <div class="track-info">
-                            <span class="play-icon">▶</span>
-                            <span class="track-title">${track.title}</span>
-                        </div>
-                        <span class="track-duration">0:00</span>
-                    </li>
-                `).join('')}
-            </ul>
-        `;
-        
-        sessionElement.innerHTML = sessionHTML;
-        container.appendChild(sessionElement);
-    });
-
-    // Load track durations
-    loadTrackDurations();
-
-    // Add track click handlers
+    // Initialize time displays
     document.querySelectorAll('.track-item').forEach(item => {
-        // Add click event handlers for tracks
-        item.addEventListener('click', () => {
-            const src = item.dataset.src;
-            const titleElement = item.querySelector('.track-title');
-            const originalTitle = titleElement.getAttribute('data-original-title') || titleElement.textContent;
-            
-            // Remove playing indication from all tracks
-            document.querySelectorAll('.track-item').forEach(track => {
-                const trackTitle = track.querySelector('.track-title');
-                trackTitle.textContent = trackTitle.getAttribute('data-original-title') || trackTitle.textContent;
-                trackTitle.removeAttribute('data-original-title');
-                track.classList.remove('playing');
-            });
-            
-            // Add playing indication to current track
-            item.classList.add('playing');
-            titleElement.setAttribute('data-original-title', originalTitle);
-            titleElement.textContent = `${originalTitle} (playing now)`;
-            
-            // Play the track
-            if (audio) {
-                audio.stop();
-                if (animationId) cancelAnimationFrame(animationId);
-                clearInterval(progressInterval);
+        new Howl({
+            src: [item.dataset.src],
+            onload: function() {
+                item.querySelector('.track-duration').textContent = 
+                    formatTime(this.duration());
             }
-            
-            audio = new Howl({
-                src: [src],
-                html5: false, // Force Web Audio API instead of HTML5 Audio
-                format: [src.split('.').pop()],
-                volume: volumeControl.value,
-                onload: function() {
-                    const durationElement = document.getElementById('total-time');
-                    if (durationElement) {
-                        const duration = this.duration();
-                        durationElement.textContent = formatTime(duration);
-                    }
-                },
-                onplay: () => {
-                    playPauseBtn.textContent = '⏸';
-                    document.getElementById('current-track').textContent = originalTitle;
-                    
-                    // Initialize visualizer after a short delay to ensure audio is playing
-                    setTimeout(() => {
-                        initVisualizer();
-                        initSeek();
-                        
-                        if (progressInterval) {
-                            clearInterval(progressInterval);
-                        }
-                        
-                        progressInterval = setInterval(updateProgress, 100);
-                    }, 100);
-                },
-                onloaderror: function(id, error) {
-                    console.error('Error loading audio:', error);
-                    alert('Error loading audio file. Please try another track.');
-                },
-                onpause: () => {
-                    playPauseBtn.textContent = '▶';
-                },
-                onend: () => {
-                    playPauseBtn.textContent = '▶';
-                    clearInterval(progressInterval);
-                    resetProgress();
-                },
-                onstop: () => {
-                    playPauseBtn.textContent = '▶';
-                    clearInterval(progressInterval);
-                    resetProgress();
-                    
-                    // Remove playing indication from all tracks when stopped
-                    document.querySelectorAll('.track-item').forEach(track => {
-                        const trackTitle = track.querySelector('.track-title');
-                        trackTitle.textContent = trackTitle.getAttribute('data-original-title') || trackTitle.textContent;
-                        trackTitle.removeAttribute('data-original-title');
-                        track.classList.remove('playing');
-                    });
-                }
-            });
-            
-            audio.play();
         });
     });
-
-    // Add time display
-    addTimeDisplay();
 }
 
-// Play/pause button handler
-playPauseBtn.addEventListener('click', () => {
-    if (!audio) return;
-    
-    if (audio.playing()) {
-        audio.pause();
-    } else {
-        audio.play();
-    }
-});
-
-// Volume control
-volumeControl.addEventListener('input', (e) => {
-    if (audio) audio.volume(e.target.value);
-});
-
-// Add time display to player
-function addTimeDisplay() {
-    // Change this selector to target the player controls container
-    const playerControls = document.querySelector('.player-controls .track-info');
-    
-    // Check if time display already exists
-    if (!document.querySelector('.time-display')) {
-        const timeDisplay = document.createElement('div');
-        timeDisplay.className = 'time-display';
-        timeDisplay.innerHTML = `
-            <span id="current-time">0:00</span>
-            <span class="time-separator">/</span>
-            <span id="total-time">0:00</span>
-        `;
-        // Insert after the progress container
-        const progressContainer = document.querySelector('.progress-container');
-        progressContainer.insertAdjacentElement('afterend', timeDisplay);
-    }
-}
-// Create a new p5 instance for the background visualization
-function setupP5Background() {
+// Background visualizer
+function setupVisualizer() {
     p5sketch = new p5((p) => {
-        let phase = 0;
-        let smoothedAmplitude = 0;
-        let targetAmplitude = 0;
-        let frequencyData = new Uint8Array(1024);
-        let dotSize = 2;
-        let waveSpeed = 0.5;
-        let bassEnergy = 0;
-        let midEnergy = 0;
-        let trebleEnergy = 0;
-        let energyHistory = [];
-        let showDebug = false; // Debug toggle
-        let debugButton;
-
+        let bassEnergy = 0, midEnergy = 0, trebleEnergy = 0;
+        
         p.setup = () => {
-            // Create full-screen canvas
-            const canvas = p.createCanvas(window.innerWidth, window.innerHeight);
-            
-            // Add these styles immediately
-            canvas.elt.style.position = 'fixed';
-            canvas.elt.style.top = '0';
-            canvas.elt.style.left = '0';
-            canvas.elt.style.zIndex = '-1';
-            canvas.elt.style.pointerEvents = 'none';
-            // Position the canvas as a fixed background with important flag
-            canvas.style('position', 'fixed !important');
-            canvas.style('top', '0');
-            canvas.style('left', '0');
-            canvas.style('z-index', '-1'); // Behind all content
-            canvas.style('opacity', '0.7'); // Slightly faded
-            canvas.style('pointer-events', 'none'); // Allow clicking through the canvas
-            
-            // Add a class to identify our canvas
-            canvas.class('background-visualization');
-            
-            // Force a resize to ensure proper dimensions
-            p.windowResized();
-            
-            // Create debug toggle button
-            debugButton = p.createButton('Debug');
-            debugButton.position(20, 20);
-            debugButton.style('background', 'rgba(0,0,0,0.5)');
-            debugButton.style('color', '#fff');
-            debugButton.style('border', '1px solid rgba(255,255,255,0.3)');
-            debugButton.style('border-radius', '4px');
-            debugButton.style('padding', '4px 8px');
-            debugButton.style('font-size', '10px');
-            debugButton.style('cursor', 'pointer');
-            debugButton.style('z-index', '1000'); // Above the canvas
-            debugButton.mousePressed(() => {
-                showDebug = !showDebug;
-                debugButton.html(showDebug ? 'Hide' : 'Debug');
-            });
-            
+            p.createCanvas(window.innerWidth, window.innerHeight)
+                .class('background-visualization')
+                .style('position', 'fixed');
             p.colorMode(p.HSB);
             p.noStroke();
         };
 
         p.draw = () => {
-            p.background(0, 0.05); // More transparent for stronger trails
+            p.background(0, 0.05);
+            if (!audio || !audio.playing()) return;
             
-            // Process audio data
-            if (analyser && audio && audio.playing()) {
-                analyser.getByteFrequencyData(frequencyData);
-                
-                // Check if we're getting any data
-                let sum = 0;
-                for (let i = 0; i < frequencyData.length; i++) {
-                    sum += frequencyData[i];
-                }
-                const average = sum / frequencyData.length;
-                
-                // Calculate frequency band energies
-                const bassRange = Math.floor(frequencyData.length * 0.1); // 0-200Hz
-                const midRange = Math.floor(frequencyData.length * 0.5); // 200-5kHz
-                
-                // Reset energy values
-                bassEnergy = 0;
-                midEnergy = 0;
-                trebleEnergy = 0;
-                
-                // Calculate energy in each band
-                for (let i = 0; i < frequencyData.length; i++) {
-                    const normalizedValue = frequencyData[i] / 255;
-                    if (i < bassRange) {
-                        bassEnergy += normalizedValue;
-                    } else if (i < midRange) {
-                        midEnergy += normalizedValue;
-                    } else {
-                        trebleEnergy += normalizedValue;
-                    }
-                }
-                
-                // Normalize and smooth energies
-                bassEnergy = bassEnergy / bassRange;
-                midEnergy = midEnergy / (midRange - bassRange);
-                trebleEnergy = trebleEnergy / (frequencyData.length - midRange);
-                
-                // Calculate overall amplitude with more dynamic range
-                const rawAmplitude = (bassEnergy + midEnergy + trebleEnergy) / 3;
-                targetAmplitude = p.constrain(rawAmplitude * 3, 0.5, 4);
-                
-                // Store energy for visualization
-                energyHistory.push({
-                    bass: bassEnergy,
-                    mid: midEnergy,
-                    treble: trebleEnergy
-                });
-                if (energyHistory.length > 50) energyHistory.shift();
-            } else {
-                // Gentle animation when no audio is playing
-                targetAmplitude = 0.5 + Math.sin(p.frameCount * 0.01) * 0.2;
-                
-                // Create gentle color cycling
-                bassEnergy = 0.3 + Math.sin(p.frameCount * 0.005) * 0.1;
-                midEnergy = 0.3 + Math.sin(p.frameCount * 0.007 + 2) * 0.1;
-                trebleEnergy = 0.3 + Math.sin(p.frameCount * 0.003 + 4) * 0.1;
-                
-                // Add to energy history for idle animation
-                if (p.frameCount % 5 === 0) {
-                    energyHistory.push({
-                        bass: bassEnergy,
-                        mid: midEnergy,
-                        treble: trebleEnergy
-                    });
-                    if (energyHistory.length > 50) energyHistory.shift();
-                }
-            }
+            // Calculate energy levels
+            const dataArray = new Uint8Array(analyser.frequencyBinCount);
+            analyser.getByteFrequencyData(dataArray);
+            
+            bassEnergy = dataArray.slice(0, 20).reduce((a,b) => a + b, 0) / 2000;
+            midEnergy = dataArray.slice(20, 100).reduce((a,b) => a + b, 0) / 8000;
+            trebleEnergy = dataArray.slice(100).reduce((a,b) => a + b, 0) / 15000;
 
-            // Show debug info if enabled
-            if (showDebug) {
-                p.fill(255);
-                p.textSize(10);
-                p.text(`Audio playing: ${audio ? audio.playing() : false}`, 10, 15);
-                p.text(`Analyzer: ${!!analyser}`, 10, 30);
-                p.text(`Bass: ${bassEnergy.toFixed(3)}`, 10, 45);
-                p.text(`Mid: ${midEnergy.toFixed(3)}`, 10, 60);
-                p.text(`Treble: ${trebleEnergy.toFixed(3)}`, 10, 75);
-                p.text(`Amplitude: ${targetAmplitude.toFixed(3)}`, 10, 90);
-            }
-
-            // Smooth amplitude changes
-            smoothedAmplitude = p.lerp(smoothedAmplitude, targetAmplitude, 0.1);
-            
-            // Calculate dynamic parameters
-            const wavelength = p.map(midEnergy, 0, 1, 100, 20);
-            const waveHeight = smoothedAmplitude * p.height/8; // Reduced height for background
-            dotSize = p.map(smoothedAmplitude, 0, 4, 2, 6);
-            waveSpeed = p.map(trebleEnergy, 0, 1, 0.1, 0.5); // Slower for background
-            
-            // Add pulsing glow effect
-            const maxDimension = Math.max(p.width, p.height);
-            const glowSize = maxDimension * smoothedAmplitude * 0.8;
-            p.drawingContext.filter = 'blur(60px)'; // More blur for background
-            
-            // Multiple layers of glow with different colors
-            p.fill(0, 80, 100, 0.05 * bassEnergy * smoothedAmplitude);
-            p.ellipse(p.width/2, p.height/2, glowSize * bassEnergy);
-            
-            p.fill(120, 80, 100, 0.05 * midEnergy * smoothedAmplitude);
-            p.ellipse(p.width/2, p.height/2, glowSize * 0.8 * midEnergy);
-            
-            p.fill(240, 80, 100, 0.05 * trebleEnergy * smoothedAmplitude);
-            p.ellipse(p.width/2, p.height/2, glowSize * 0.6 * trebleEnergy);
-            
-            p.fill(200, 50, 100, 0.08 * smoothedAmplitude);
-            p.ellipse(p.width/2, p.height/2, glowSize);
-            
-            p.drawingContext.filter = 'none';
-            
-            // Draw multiple sine waves across the screen
-            phase += waveSpeed;
-            
-            // Draw 3 waves at different heights
-            for (let wave = 0; wave < 3; wave++) {
-                const waveY = p.height * (0.25 + wave * 0.25);
-                const waveAmplitude = waveHeight * (1 - wave * 0.2);
-                
-                for (let x = 0; x < p.width; x += wavelength/3) {
-                    const angle = phase + (x * p.TWO_PI) / wavelength + wave;
-                    const y = waveY + p.sin(angle) * waveAmplitude;
-                    
-                    // Color based on frequency content
-                    const hue = (p.map(midEnergy, 0, 1, 200, 360) + wave * 30) % 360;
-                    const saturation = p.map(trebleEnergy, 0, 1, 60, 100);
-                    const brightness = p.map(bassEnergy, 0, 1, 70, 100);
-                    p.fill(hue, saturation, brightness, 0.7); // More transparent
-                    
-                    // Size variation
-                    const size = dotSize + bassEnergy * 2 + midEnergy * 1.5;
-                    p.ellipse(x, y, size, size);
-                }
-            }
-
-            // Skip drawing the frequency bars for the background visualization
+            // Dynamic circles
+            const baseSize = p.map(bassEnergy + midEnergy + trebleEnergy, 0, 3, 50, 400);
+            p.fill(29, 185, 84, 0.1);
+            p.ellipse(p.width/2, p.height/2, baseSize + p.sin(p.frameCount * 0.1) * 50);
+            p.ellipse(p.width/2, p.height/2, baseSize * 0.8 + p.cos(p.frameCount * 0.08) * 40);
         };
-
-        p.windowResized = () => {
-            p.resizeCanvas(window.innerWidth, window.innerHeight);
-            
-            // Update debug button position
-            if (debugButton) {
-                debugButton.position(20, 20);
-            }
-        };
-    });
-    
-    // Add a MutationObserver to ensure our canvas isn't removed
-    const bodyObserver = new MutationObserver((mutations) => {
-        const canvas = document.querySelector('.background-visualization');
-        if (!canvas || canvas.style.display === 'none' || canvas.style.visibility === 'hidden') {
-            console.log('Canvas issues detected, recreating...');
-            if (p5sketch) p5sketch.remove();
-            setupP5Background();
-        }
-    });
-    
-    // Start observing the body for changes
-    bodyObserver.observe(document.body, { 
-        childList: true, 
-        subtree: true,
-        attributes: true,
-        attributeFilter: ['style', 'class']
     });
 }
+
+// Initialization
+window.addEventListener('load', async () => {
+    initWaveform();
+    setupVisualizer();
+    await populateSessions();
+    
+    playPauseBtn.addEventListener('click', () => {
+        if (!audio) return;
+        audio.playing() ? audio.pause() : audio.play();
+    });
+});
