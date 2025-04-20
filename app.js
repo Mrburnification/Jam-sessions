@@ -19,7 +19,7 @@ const progressContainer = document.querySelector('.progress-container');
 let waveformContainer;
 
 // Add a flag to toggle between real and mock data
-const USE_MOCK_DATA = true;
+const USE_MOCK_DATA = false;
 
 // Initialize waveform canvas - now with null check
 function initWaveform() {
