@@ -18,6 +18,9 @@ const progressBar = document.getElementById('progress');
 const progressContainer = document.querySelector('.progress-container');
 let waveformContainer;
 
+// Add a flag to toggle between real and mock data
+const USE_MOCK_DATA = true;
+
 // Initialize waveform canvas - now with null check
 function initWaveform() {
     waveformContainer = document.querySelector('.waveform-container');
@@ -40,10 +43,19 @@ function updateWaveformSize() {
     }
 }
 
-// Modified initialization to wait for DOM
-document.addEventListener('DOMContentLoaded', () => {
+// Add this function to handle the loading screen and content visibility
+function showContent() {
+    document.body.classList.add('content-loaded');
+}
+
+// Call this function after all content is loaded
+document.addEventListener('DOMContentLoaded', async () => {
     initWaveform();
     setupVisualizer();
+    await populateSessions();
+    
+    // Show the content after everything is ready
+    showContent();
     
     window.addEventListener('resize', () => {
         updateWaveformSize();
@@ -54,9 +66,6 @@ document.addEventListener('DOMContentLoaded', () => {
         if (!audio) return;
         audio.playing() ? audio.pause() : audio.play();
     });
-
-    // Start loading content
-    populateSessions();
 });
 
 // Resize handlers
@@ -70,30 +79,41 @@ function initVisualizer() {
     try {
         const audioContext = Howler.ctx;
         
+        // Create analyzer if it doesn't exist
         if (!analyser) {
             analyser = audioContext.createAnalyser();
             analyser.fftSize = 2048;
-            analyser.smoothingTimeConstant = 0.8;
+            Howler.masterGain.connect(analyser);
         }
-
-        if (!audioCompressor) {
-            audioCompressor = audioContext.createDynamicsCompressor();
-            audioCompressor.threshold.value = -30;
-            audioCompressor.knee.value = 40;
-            audioCompressor.ratio.value = 20;
-            audioCompressor.attack.value = 0.01;
-            audioCompressor.release.value = 0.25;
-            audioCompressor.connect(audioContext.destination);
-        }
-
-        Howler.masterGain.disconnect();
-        Howler.masterGain.connect(analyser);
-        Howler.masterGain.connect(audioCompressor);
         
-        const canvas = document.querySelector('.background-visualization');
-        if (canvas) canvas.style.opacity = '0.7';
+        // Ensure waveform canvas is ready
+        if (!waveformCtx && waveformContainer) {
+            initWaveform();
+        }
+        
     } catch (error) {
         console.error("Visualizer error:", error);
+    }
+}
+
+function drawWaveform() {
+    if (!analyser || !waveformCtx || !waveformCanvas) return;
+    
+    const bufferLength = analyser.frequencyBinCount;
+    const dataArray = new Uint8Array(bufferLength);
+    analyser.getByteFrequencyData(dataArray);
+    
+    waveformCtx.clearRect(0, 0, waveformCanvas.width, waveformCanvas.height);
+    
+    const barWidth = (waveformCanvas.width / bufferLength) * 2.5;
+    let x = 0;
+    
+    for (let i = 0; i < bufferLength; i++) {
+        const barHeight = (dataArray[i] / 255) * waveformCanvas.height;
+        
+        waveformCtx.fillStyle = `hsl(${i/bufferLength * 360}, 100%, 50%)`;
+        waveformCtx.fillRect(x, waveformCanvas.height - barHeight, barWidth, barHeight);
+        x += barWidth + 1;
     }
 }
 
@@ -115,31 +135,6 @@ function updateProgress() {
     progressBar.style.width = `${progress}%`;
     document.getElementById('current-time').textContent = formatTime(seek);
     drawWaveform();
-}
-
-function drawWaveform() {
-    if (!analyser || !waveformCtx) return;
-    
-    const dataArray = new Uint8Array(analyser.frequencyBinCount);
-    analyser.getByteFrequencyData(dataArray);
-    
-    waveformCtx.clearRect(0, 0, waveformCanvas.width, waveformCanvas.height);
-    waveformCtx.fillStyle = 'rgba(255, 255, 255, 0.1)';
-    waveformCtx.fillRect(0, 0, waveformCanvas.width, waveformCanvas.height);
-    
-    const barWidth = (waveformCanvas.width / dataArray.length) * 2.5;
-    let x = 0;
-    
-    dataArray.forEach(value => {
-        const height = (value / 255) * waveformCanvas.height;
-        const gradient = waveformCtx.createLinearGradient(0, 0, 0, waveformCanvas.height);
-        gradient.addColorStop(0, '#1db954');
-        gradient.addColorStop(1, '#14833b');
-        
-        waveformCtx.fillStyle = gradient;
-        waveformCtx.fillRect(x, waveformCanvas.height - height, barWidth, height);
-        x += barWidth + 1;
-    });
 }
 
 // Session data handling
@@ -174,7 +169,23 @@ async function getSessionComment(dateDir) {
     }
 }
 
+// Function to fetch mock sessions
+async function fetchMockSessions() {
+    try {
+        const response = await fetch('mockSessions.json');
+        return response.ok ? await response.json() : [];
+    } catch (error) {
+        console.error('Mock fetch error:', error);
+        return [];
+    }
+}
+
+// Modify getSessions to use mock data if the flag is set
 async function getSessions() {
+    if (USE_MOCK_DATA) {
+        return fetchMockSessions();
+    }
+
     try {
         const dates = await fetchDirectory('audio');
         const sessions = [];
@@ -252,8 +263,10 @@ async function populateSessions() {
     });
 
     // Event handling
-    container.addEventListener('click', handleTrackClick);
-    container.addEventListener('touchstart', handleTrackClick);
+    const debouncedHandleTrackClick = debounce(handleTrackClick, 300);
+
+    container.addEventListener('click', debouncedHandleTrackClick);
+    container.addEventListener('touchstart', debouncedHandleTrackClick, { passive: true });
 
     function handleTrackClick(e) {
         const trackItem = e.target.closest('.track-item');
@@ -263,18 +276,16 @@ async function populateSessions() {
         const titleElement = trackItem.querySelector('.track-title');
         const originalTitle = titleElement.textContent.replace(' (playing)', '');
         
-        // Update track states
+        // Update track states - only use CSS for the (playing) text
         document.querySelectorAll('.track-item').forEach(t => {
             t.classList.remove('playing');
-            t.querySelector('.track-title').textContent = 
-                t.querySelector('.track-title').textContent.replace(' (playing)', '');
         });
         
         trackItem.classList.add('playing');
-        titleElement.textContent = `${originalTitle} (playing)`;
+        document.getElementById('current-track').textContent = originalTitle;
 
         // Audio handling
-        if (audio) audio.stop();
+        if (audio && typeof audio.stop === 'function') audio.stop();
         audio = new Howl({
             src: [src],
             html5: true,
@@ -287,7 +298,8 @@ async function populateSessions() {
             onend: resetPlaybackState,
             onstop: resetPlaybackState,
             onpause: () => playPauseBtn.textContent = '▶'
-        }).play();
+        });
+        audio.play();
     }
 
     // Initialize time displays
@@ -308,42 +320,54 @@ function setupVisualizer() {
         let bassEnergy = 0, midEnergy = 0, trebleEnergy = 0;
         
         p.setup = () => {
-            p.createCanvas(window.innerWidth, window.innerHeight)
-                .class('background-visualization')
-                .style('position', 'fixed');
+            const canvas = p.createCanvas(window.innerWidth, window.innerHeight);
+            canvas.class('background-visualization');
             p.colorMode(p.HSB);
             p.noStroke();
         };
 
         p.draw = () => {
             p.background(0, 0.05);
+            
             if (!audio || !audio.playing()) return;
             
-            // Calculate energy levels
-            const dataArray = new Uint8Array(analyser.frequencyBinCount);
-            analyser.getByteFrequencyData(dataArray);
+            // Only calculate energies if analyzer exists
+            if (analyser) {
+                const dataArray = new Uint8Array(analyser.frequencyBinCount);
+                analyser.getByteFrequencyData(dataArray);
+                
+                bassEnergy = dataArray.slice(0, 20).reduce((a,b) => a + b, 0) / 2000;
+                midEnergy = dataArray.slice(20, 100).reduce((a,b) => a + b, 0) / 8000;
+                trebleEnergy = dataArray.slice(100).reduce((a,b) => a + b, 0) / 15000;
+            }
             
-            bassEnergy = dataArray.slice(0, 20).reduce((a,b) => a + b, 0) / 2000;
-            midEnergy = dataArray.slice(20, 100).reduce((a,b) => a + b, 0) / 8000;
-            trebleEnergy = dataArray.slice(100).reduce((a,b) => a + b, 0) / 15000;
-
-            // Dynamic circles
-            const baseSize = p.map(bassEnergy + midEnergy + trebleEnergy, 0, 3, 50, 400);
-            p.fill(29, 185, 84, 0.1);
-            p.ellipse(p.width/2, p.height/2, baseSize + p.sin(p.frameCount * 0.1) * 50);
-            p.ellipse(p.width/2, p.height/2, baseSize * 0.8 + p.cos(p.frameCount * 0.08) * 40);
+            // Dynamic pulsing circles
+            const energy = bassEnergy * 0.6 + midEnergy * 0.3 + trebleEnergy * 0.1;
+            const baseSize = p.map(energy, 0, 1, 50, 400);
+            const pulse = p.sin(p.frameCount * 0.05) * 50;
+            
+            p.fill(120, 100, 100, 0.1);
+            p.ellipse(p.width/2, p.height/2, baseSize + pulse);
+            
+            p.fill(200, 100, 100, 0.1);
+            p.ellipse(p.width/2, p.height/2, baseSize * 0.7 + pulse * 0.8);
         };
     });
 }
 
 // Initialization
-window.addEventListener('load', async () => {
-    initWaveform();
-    setupVisualizer();
-    await populateSessions();
-    
+window.addEventListener('load', () => {
     playPauseBtn.addEventListener('click', () => {
         if (!audio) return;
         audio.playing() ? audio.pause() : audio.play();
     });
 });
+
+function debounce(func, wait) {
+    let timeout;
+    return function(...args) {
+        const context = this;
+        clearTimeout(timeout);
+        timeout = setTimeout(() => func.apply(context, args), wait);
+    };
+}

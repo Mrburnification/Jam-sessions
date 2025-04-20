@@ -1,0 +1,70 @@
+[
+    {
+        "date": "2025-03-27",
+        "tracks": [
+            {
+                "title": "Track 1",
+                "url": "audio/2025-03-27/track1.mp3"
+            },
+            {
+                "title": "Track 2",
+                "url": "audio/2025-03-27/track2.mp3"
+            }
+        ],
+        "comment": "Session from March 27, 2025."
+    },
+    {
+        "date": "2023-03-19",
+        "tracks": [
+            {
+                "title": "Track A",
+                "url": "audio/2023-03-19/trackA.mp3"
+            },
+            {
+                "title": "Track B",
+                "url": "audio/2023-03-19/trackB.mp3"
+            }
+        ],
+        "comment": "Session from March 19, 2023."
+    },
+    {
+        "date": "2022-01-25",
+        "tracks": [
+            {
+                "title": "Dream a dream of me",
+                "url": "audio/2022-01-25/Dream a dream of me.mp3"
+            }
+        ],
+        "comment": "Session from January 25, 2022."
+    },
+    {
+        "date": "2021-12-14",
+        "tracks": [
+            {
+                "title": "Track X",
+                "url": "audio/2021-12-14/trackX.mp3"
+            }
+        ],
+        "comment": "Session from December 14, 2021."
+    },
+    {
+        "date": "2021-04-14",
+        "tracks": [
+            {
+                "title": "Track Y",
+                "url": "audio/2021-04-14/trackY.mp3"
+            }
+        ],
+        "comment": "Session from April 14, 2021."
+    },
+    {
+        "date": "2021-03-19",
+        "tracks": [
+            {
+                "title": "Track Z",
+                "url": "audio/2021-03-19/trackZ.mp3"
+            }
+        ],
+        "comment": "Session from March 19, 2021."
+    }
+] 

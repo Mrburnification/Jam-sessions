@@ -70,7 +70,7 @@ main {
 }
 /* Track Highlighting */
 .track-item.playing {
-    background: rgba(65, 105, 225, 0.4) !important;
+    background: rgba(65, 105, 225, 0.4);
     border-left: 3px solid #4169e1;
 }
 .track-item.playing .track-title::after {
@@ -78,7 +78,6 @@ main {
     color: #1db954;
     font-size: 0.9em;
 }
-
 /* Player Controls Layout */
 .player-controls {
     display: flex;
@@ -102,7 +101,8 @@ main {
     left: 0;
     width: 100%;
     height: 100%;
-    opacity: 0.7;
+    pointer-events: none;
+    z-index: 1;
 }
 .waveform-canvas {
     width: 100%;
@@ -111,7 +111,14 @@ main {
 
 /* Background Visualizer Fix */
 .background-visualization {
-    transition: transform 0.3s ease;
+    position: fixed;
+    top: 0;
+    left: 0;
+    width: 100vw;
+    height: 100vh;
+    z-index: -1;
+    opacity: 0.7;
+    pointer-events: none;
 }
 .track-info {
     display: flex;
@@ -196,11 +203,9 @@ main {
     width: 100%;
 }
 .progress-bar {
-    height: 100%;
-    background: var(--accent-color);
-    width: 0%;
-    border-radius: 4px;
     position: relative;
+    z-index: 2;
+    background-color: rgba(29, 185, 84, 0.3);
 }
 .progress-dot {
     position: absolute;
