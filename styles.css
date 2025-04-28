@@ -5,6 +5,11 @@
     --accent-color: #1db954;
 }
 body {
+    user-select: none;
+    -webkit-user-select: none;
+    -moz-user-select: none;
+    -ms-user-select: none;
+    cursor: default;
     font-family: 'Segoe UI', sans-serif;
     background: var(--bg-color);
     color: var(--text-color);
@@ -181,7 +186,9 @@ main {
     left: 0;
     width: 100%;
     height: 100%;
-    opacity: 0.7;
+    pointer-events: none;
+    z-index: 1; /* Below progress bar */
+    opacity: 0.5;
 }
 .waveform-canvas {
     width: 100%;
@@ -193,19 +200,27 @@ main {
     transition: transform 0.3s ease;
 }
 
+.progress-bar {
+    height: 100%;
+    width: 0%;
+    background-color: var(--accent-color);
+    border-radius: 4px;
+    position: absolute;
+    top: 0;
+    left: 0;
+    z-index: 3; /* Higher than waveform */
+    transition: width 0.1s linear;
+    opacity: 0.7;
+}
+
 .progress-container {
+    position: relative;
     height: 8px;
     background: rgba(255, 255, 255, 0.2);
     border-radius: 4px;
     margin: 0.5rem 0;
     cursor: pointer;
-    position: relative;
     width: 100%;
-}
-.progress-bar {
-    position: relative;
-    z-index: 2;
-    background-color: rgba(29, 185, 84, 0.3);
 }
 .progress-dot {
     position: absolute;
@@ -270,6 +285,25 @@ main {
     text-overflow: ellipsis;
     white-space: nowrap;
     max-width: calc(100% - 50px);
+}
+
+.track-item.touch-active {
+    background: rgba(65, 105, 225, 0.2) !important;
+}
+
+/* Remove tap highlight color on mobile */
+* {
+    -webkit-tap-highlight-color: transparent;
+}
+
+/* Prevent long-tap text selection on mobile */
+.track-item {
+    -webkit-touch-callout: none;
+}
+
+/* Ensure buttons maintain pointer cursor */
+button, [role="button"] {
+    cursor: pointer;
 }
 /* Style for session comments */
 .session-comment {

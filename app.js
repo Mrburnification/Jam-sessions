@@ -2,6 +2,7 @@
 const GITHUB_USER = 'Mrburnification';
 const REPO_NAME = 'Jam-sessions';
 const AUDIO_BASE_URL = `https://${GITHUB_USER}.github.io/${REPO_NAME}/audio`;
+const USE_MOCK_DATA = false; // Flag to toggle between real and mock data
 
 // Audio system variables
 let audio;
@@ -13,15 +14,22 @@ let audioCompressor;
 let waveformCanvas, waveformCtx;
 
 // DOM elements
+const container = document.getElementById('sessions-list');
 const playPauseBtn = document.getElementById('play-pause');
 const progressBar = document.getElementById('progress');
 const progressContainer = document.querySelector('.progress-container');
 let waveformContainer;
 
-// Add a flag to toggle between real and mock data
-const USE_MOCK_DATA = false;
+// Initialize the application
+function initApp() {
+    initWaveform();
+    setupVisualizer();
+    initEventListeners();
+    populateSessions();
+    showContent();
+}
 
-// Initialize waveform canvas - now with null check
+// Waveform functions
 function initWaveform() {
     waveformContainer = document.querySelector('.waveform-container');
     if (!waveformContainer) {
@@ -43,54 +51,36 @@ function updateWaveformSize() {
     }
 }
 
-// Add this function to handle the loading screen and content visibility
+// UI functions
 function showContent() {
     document.body.classList.add('content-loaded');
 }
 
-// Call this function after all content is loaded
-document.addEventListener('DOMContentLoaded', async () => {
-    initWaveform();
-    setupVisualizer();
-    await populateSessions();
-    
-    // Show the content after everything is ready
-    showContent();
-    
-    window.addEventListener('resize', () => {
-        updateWaveformSize();
-        if (p5sketch) p5sketch.resizeCanvas(window.innerWidth, window.innerHeight);
+function resetPlaybackState() {
+    playPauseBtn.textContent = '▶';
+    clearInterval(progressInterval);
+    progressBar.style.width = '0%';
+    document.querySelectorAll('.track-item').forEach(track => {
+        track.classList.remove('playing');
+        const title = track.querySelector('.track-title');
+        title.textContent = title.textContent.replace(' (playing)', '');
     });
+}
 
-    playPauseBtn.addEventListener('click', () => {
-        if (!audio) return;
-        audio.playing() ? audio.pause() : audio.play();
-    });
-});
-
-// Resize handlers
-window.addEventListener('resize', () => {
-    updateWaveformSize();
-    if (p5sketch) p5sketch.resizeCanvas(window.innerWidth, window.innerHeight);
-});
-
-// Audio visualizer initialization
+// Audio visualizer functions
 function initVisualizer() {
     try {
         const audioContext = Howler.ctx;
         
-        // Create analyzer if it doesn't exist
         if (!analyser) {
             analyser = audioContext.createAnalyser();
             analyser.fftSize = 2048;
             Howler.masterGain.connect(analyser);
         }
         
-        // Ensure waveform canvas is ready
         if (!waveformCtx && waveformContainer) {
             initWaveform();
         }
-        
     } catch (error) {
         console.error("Visualizer error:", error);
     }
@@ -110,14 +100,13 @@ function drawWaveform() {
     
     for (let i = 0; i < bufferLength; i++) {
         const barHeight = (dataArray[i] / 255) * waveformCanvas.height;
-        
         waveformCtx.fillStyle = `hsl(${i/bufferLength * 360}, 100%, 50%)`;
         waveformCtx.fillRect(x, waveformCanvas.height - barHeight, barWidth, barHeight);
         x += barWidth + 1;
     }
 }
 
-// Progress and waveform functions
+// Time formatting
 function formatTime(seconds) {
     if (!seconds || isNaN(seconds)) return '0:00';
     const minutes = Math.floor(seconds / 60);
@@ -134,10 +123,13 @@ function updateProgress() {
     
     progressBar.style.width = `${progress}%`;
     document.getElementById('current-time').textContent = formatTime(seek);
-    drawWaveform();
+    
+    if (waveformCtx && waveformCanvas) {
+        drawWaveform();
+    }
 }
 
-// Session data handling
+// Data fetching functions
 async function fetchDirectory(path) {
     try {
         const response = await fetch(
@@ -150,7 +142,6 @@ async function fetchDirectory(path) {
     }
 }
 
-// Fetch comment.txt from session directory
 async function getSessionComment(dateDir) {
     try {
         const files = await fetchDirectory(dateDir.path);
@@ -169,7 +160,6 @@ async function getSessionComment(dateDir) {
     }
 }
 
-// Function to fetch mock sessions
 async function fetchMockSessions() {
     try {
         const response = await fetch('mockSessions.json');
@@ -180,7 +170,6 @@ async function fetchMockSessions() {
     }
 }
 
-// Modify getSessions to use mock data if the flag is set
 async function getSessions() {
     if (USE_MOCK_DATA) {
         return fetchMockSessions();
@@ -215,23 +204,11 @@ async function getSessions() {
     }
 }
 
-// Player controls
-function resetPlaybackState() {
-    playPauseBtn.textContent = '▶';
-    clearInterval(progressInterval);
-    progressBar.style.width = '0%';
-    document.querySelectorAll('.track-item').forEach(track => {
-        track.classList.remove('playing');
-        const title = track.querySelector('.track-title');
-        title.textContent = title.textContent.replace(' (playing)', '');
-    });
-}
-
 // Session population
 async function populateSessions() {
-    const container = document.getElementById('sessions-list');
-    container.innerHTML = '<div class="loading">Loading sessions...</div>';
+    if (!container) return;
     
+    container.innerHTML = '<div class="loading">Loading sessions...</div>';
     const sessions = await getSessions();
     container.innerHTML = '';
     
@@ -248,7 +225,7 @@ async function populateSessions() {
                 ${session.comment ? `<div class="session-comment">${session.comment}</div>` : ''}
                 <ul class="track-list">
                     ${session.tracks.map(track => `
-                        <li class="track-item" data-src="${track.url}">
+                        <li class="track-item" data-src="${track.url}" tabindex="0">
                             <div class="track-info">
                                 <span class="play-icon">▶</span>
                                 <span class="track-title">${track.title}</span>
@@ -262,47 +239,7 @@ async function populateSessions() {
         container.insertAdjacentHTML('beforeend', sessionHTML);
     });
 
-    // Event handling
-    const debouncedHandleTrackClick = debounce(handleTrackClick, 300);
-
-    container.addEventListener('click', debouncedHandleTrackClick);
-    container.addEventListener('touchstart', debouncedHandleTrackClick, { passive: true });
-
-    function handleTrackClick(e) {
-        const trackItem = e.target.closest('.track-item');
-        if (!trackItem) return;
-        
-        const src = trackItem.dataset.src;
-        const titleElement = trackItem.querySelector('.track-title');
-        const originalTitle = titleElement.textContent.replace(' (playing)', '');
-        
-        // Update track states - only use CSS for the (playing) text
-        document.querySelectorAll('.track-item').forEach(t => {
-            t.classList.remove('playing');
-        });
-        
-        trackItem.classList.add('playing');
-        document.getElementById('current-track').textContent = originalTitle;
-
-        // Audio handling
-        if (audio && typeof audio.stop === 'function') audio.stop();
-        audio = new Howl({
-            src: [src],
-            html5: true,
-            format: [src.split('.').pop()],
-            onplay: () => {
-                playPauseBtn.textContent = '⏸';
-                initVisualizer();
-                progressInterval = setInterval(updateProgress, 100);
-            },
-            onend: resetPlaybackState,
-            onstop: resetPlaybackState,
-            onpause: () => playPauseBtn.textContent = '▶'
-        });
-        audio.play();
-    }
-
-    // Initialize time displays
+    // Initialize track durations
     document.querySelectorAll('.track-item').forEach(item => {
         new Howl({
             src: [item.dataset.src],
@@ -312,6 +249,126 @@ async function populateSessions() {
             }
         });
     });
+}
+
+// Event handlers
+function handleTrackClick(e) {
+    const trackItem = e.target.closest('.track-item');
+    if (!trackItem || trackItem.classList.contains('processing')) return;
+    
+    trackItem.classList.add('processing');
+    
+    const src = trackItem.dataset.src;
+    const titleElement = trackItem.querySelector('.track-title');
+    const originalTitle = titleElement.textContent.replace(' (playing)', '');
+    
+    document.querySelectorAll('.track-item').forEach(t => {
+        t.classList.remove('playing');
+    });
+    
+    trackItem.classList.add('playing');
+    document.getElementById('current-track').textContent = originalTitle;
+
+    if (audio && typeof audio.stop === 'function') {
+        audio.stop();
+    }
+    
+    audio = new Howl({
+        src: [src],
+        html5: true,
+        format: [src.split('.').pop()],
+        onplay: () => {
+            playPauseBtn.textContent = '⏸';
+            initVisualizer();
+            progressInterval = setInterval(updateProgress, 100);
+            setTimeout(() => trackItem.classList.remove('processing'), 300);
+        },
+        onend: () => {
+            resetPlaybackState();
+            trackItem.classList.remove('processing');
+        },
+        onstop: () => {
+            resetPlaybackState();
+            trackItem.classList.remove('processing');
+        },
+        onpause: () => {
+            playPauseBtn.textContent = '▶';
+            trackItem.classList.remove('processing');
+        },
+        onloaderror: () => {
+            trackItem.classList.remove('processing');
+        }
+    });
+    audio.play();
+}
+
+function initEventListeners() {
+    // Play/Pause button
+    playPauseBtn.addEventListener('click', function() {
+        if (!audio || this.classList.contains('processing')) return;
+        
+        this.classList.add('processing');
+        
+        if (audio.playing()) {
+            audio.pause();
+        } else {
+            audio.play();
+        }
+        
+        setTimeout(() => this.classList.remove('processing'), 300);
+    });
+
+    // Progress bar seeking
+    progressContainer.addEventListener('click', (e) => {
+        if (!audio) return;
+        const rect = progressContainer.getBoundingClientRect();
+        const offsetX = e.clientX - rect.left;
+        const newTime = (offsetX / rect.width) * audio.duration();
+        audio.seek(newTime);
+        updateProgress();
+    });
+
+    // Track selection
+    const debouncedHandleTrackClick = debounce(handleTrackClick, 300);
+    if (container) {
+        container.addEventListener('click', debouncedHandleTrackClick);
+        
+        // Touch events for mobile
+        let touchStartY;
+        container.addEventListener('touchstart', function(e) {
+            touchStartY = e.touches[0].clientY;
+            const trackItem = e.target.closest('.track-item');
+            if (trackItem) trackItem.classList.add('touch-active');
+        }, { passive: true });
+
+        container.addEventListener('touchend', function(e) {
+            const trackItem = e.target.closest('.track-item');
+            if (trackItem) trackItem.classList.remove('touch-active');
+            
+            if (typeof touchStartY !== 'undefined') {
+                const touchEndY = e.changedTouches[0].clientY;
+                if (Math.abs(touchEndY - touchStartY) < 10) {
+                    debouncedHandleTrackClick(e);
+                }
+            }
+        }, { passive: true });
+    }
+
+    // Window resize
+    window.addEventListener('resize', () => {
+        updateWaveformSize();
+        if (p5sketch) p5sketch.resizeCanvas(window.innerWidth, window.innerHeight);
+    });
+
+    // Prevent text selection
+    document.addEventListener('selectstart', function(e) {
+        if (!e.target.classList.contains('allow-select')) {
+            e.preventDefault();
+        }
+    });
+
+    // Prevent iOS touch highlighting
+    document.addEventListener('touchstart', function() {}, { passive: true });
 }
 
 // Background visualizer
@@ -331,7 +388,6 @@ function setupVisualizer() {
             
             if (!audio || !audio.playing()) return;
             
-            // Only calculate energies if analyzer exists
             if (analyser) {
                 const dataArray = new Uint8Array(analyser.frequencyBinCount);
                 analyser.getByteFrequencyData(dataArray);
@@ -341,7 +397,6 @@ function setupVisualizer() {
                 trebleEnergy = dataArray.slice(100).reduce((a,b) => a + b, 0) / 15000;
             }
             
-            // Dynamic pulsing circles
             const energy = bassEnergy * 0.6 + midEnergy * 0.3 + trebleEnergy * 0.1;
             const baseSize = p.map(energy, 0, 1, 50, 400);
             const pulse = p.sin(p.frameCount * 0.05) * 50;
@@ -355,14 +410,7 @@ function setupVisualizer() {
     });
 }
 
-// Initialization
-window.addEventListener('load', () => {
-    playPauseBtn.addEventListener('click', () => {
-        if (!audio) return;
-        audio.playing() ? audio.pause() : audio.play();
-    });
-});
-
+// Utility functions
 function debounce(func, wait) {
     let timeout;
     return function(...args) {
@@ -371,3 +419,6 @@ function debounce(func, wait) {
         timeout = setTimeout(() => func.apply(context, args), wait);
     };
 }
+
+// Initialize the app when DOM is ready
+document.addEventListener('DOMContentLoaded', initApp);
