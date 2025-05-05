@@ -2,14 +2,13 @@
 const GITHUB_USER = 'Mrburnification';
 const REPO_NAME = 'Jam-sessions';
 const AUDIO_BASE_URL = `https://${GITHUB_USER}.github.io/${REPO_NAME}/audio`;
-const USE_MOCK_DATA = false; // Flag to toggle between real and mock data
+const USE_MOCK_DATA = true; // Flag to toggle between real and mock data
 
 // Audio system variables
 let audio;
 let analyser;
 let animationId;
 let progressInterval;
-let p5sketch;
 let audioCompressor;
 let waveformCanvas, waveformCtx;
 
@@ -22,11 +21,17 @@ let waveformContainer;
 
 // Initialize the application
 function initApp() {
+    console.log("Initializing application...");
     initWaveform();
-    setupVisualizer();
+    console.log("Waveform initialized");
+    setupSimpleVisualizer();
+    console.log("Simple visualizer setup");
     initEventListeners();
+    console.log("Event listeners initialized");
     populateSessions();
+    console.log("Sessions populated");
     showContent();
+    console.log("Content shown");
 }
 
 // Waveform functions
@@ -67,43 +72,54 @@ function resetPlaybackState() {
     });
 }
 
-// Audio visualizer functions
-function initVisualizer() {
-    try {
-        const audioContext = Howler.ctx;
-        
-        if (!analyser) {
-            analyser = audioContext.createAnalyser();
-            analyser.fftSize = 2048;
-            Howler.masterGain.connect(analyser);
-        }
-        
-        if (!waveformCtx && waveformContainer) {
-            initWaveform();
-        }
-    } catch (error) {
-        console.error("Visualizer error:", error);
+// Simple visualizer
+function setupSimpleVisualizer() {
+    console.log("Setting up simple visualizer");
+    
+    // Create visualizer container if it doesn't exist
+    let visualizerContainer = document.getElementById('simple-visualizer');
+    if (!visualizerContainer) {
+        visualizerContainer = document.createElement('div');
+        visualizerContainer.id = 'simple-visualizer';
+        document.body.appendChild(visualizerContainer);
+        console.log("Created visualizer container");
     }
+    
+    // Create visualization elements
+    for (let i = 0; i < 30; i++) {
+        const bar = document.createElement('div');
+        bar.className = 'visualizer-bar';
+        bar.style.left = `${(i * 100 / 30)}%`;
+        visualizerContainer.appendChild(bar);
+    }
+    
+    console.log(`Created ${visualizerContainer.children.length} visualizer bars`);
 }
 
-function drawWaveform() {
-    if (!analyser || !waveformCtx || !waveformCanvas) return;
+// Update visualizer with audio data
+function updateSimpleVisualizer() {
+    if (!analyser) return;
     
-    const bufferLength = analyser.frequencyBinCount;
-    const dataArray = new Uint8Array(bufferLength);
+    const bars = document.querySelectorAll('.visualizer-bar');
+    if (!bars.length) return;
+    
+    const dataArray = new Uint8Array(analyser.frequencyBinCount);
     analyser.getByteFrequencyData(dataArray);
     
-    waveformCtx.clearRect(0, 0, waveformCanvas.width, waveformCanvas.height);
+    const step = Math.floor(dataArray.length / bars.length);
     
-    const barWidth = (waveformCanvas.width / bufferLength) * 2.5;
-    let x = 0;
+    bars.forEach((bar, index) => {
+        const dataIndex = index * step;
+        const value = dataArray[dataIndex] / 255;
+        const height = Math.max(5, value * 100);
+        const hue = 120 + (value * 240);
+        
+        bar.style.height = `${height}%`;
+        bar.style.backgroundColor = `hsl(${hue}, 80%, 50%)`;
+        bar.style.opacity = 0.3 + (value * 0.7);
+    });
     
-    for (let i = 0; i < bufferLength; i++) {
-        const barHeight = (dataArray[i] / 255) * waveformCanvas.height;
-        waveformCtx.fillStyle = `hsl(${i/bufferLength * 360}, 100%, 50%)`;
-        waveformCtx.fillRect(x, waveformCanvas.height - barHeight, barWidth, barHeight);
-        x += barWidth + 1;
-    }
+    animationId = requestAnimationFrame(updateSimpleVisualizer);
 }
 
 // Time formatting
@@ -126,6 +142,11 @@ function updateProgress() {
     
     if (waveformCtx && waveformCanvas) {
         drawWaveform();
+    }
+    
+    // Update visualizer if audio is playing
+    if (!animationId && analyser) {
+        updateSimpleVisualizer();
     }
 }
 
@@ -256,21 +277,27 @@ function handleTrackClick(e) {
     const trackItem = e.target.closest('.track-item');
     if (!trackItem || trackItem.classList.contains('processing')) return;
     
-    trackItem.classList.add('processing');
-    
-    const src = trackItem.dataset.src;
-    const titleElement = trackItem.querySelector('.track-title');
-    const originalTitle = titleElement.textContent.replace(' (playing)', '');
-    
+    // Remove playing class from all tracks
     document.querySelectorAll('.track-item').forEach(t => {
         t.classList.remove('playing');
     });
     
+    // Add playing class to the selected track
     trackItem.classList.add('playing');
+    
+    const src = trackItem.dataset.src;
+    const titleElement = trackItem.querySelector('.track-title');
+    const originalTitle = titleElement.textContent.replace(' (playing)', '');
     document.getElementById('current-track').textContent = originalTitle;
 
     if (audio && typeof audio.stop === 'function') {
         audio.stop();
+    }
+    
+    // Stop any existing animation
+    if (animationId) {
+        cancelAnimationFrame(animationId);
+        animationId = null;
     }
     
     audio = new Howl({
@@ -279,24 +306,29 @@ function handleTrackClick(e) {
         format: [src.split('.').pop()],
         onplay: () => {
             playPauseBtn.textContent = '⏸';
-            initVisualizer();
+            initAudioAnalyzer();
             progressInterval = setInterval(updateProgress, 100);
-            setTimeout(() => trackItem.classList.remove('processing'), 300);
         },
         onend: () => {
             resetPlaybackState();
-            trackItem.classList.remove('processing');
+            if (animationId) {
+                cancelAnimationFrame(animationId);
+                animationId = null;
+            }
         },
         onstop: () => {
             resetPlaybackState();
-            trackItem.classList.remove('processing');
+            if (animationId) {
+                cancelAnimationFrame(animationId);
+                animationId = null;
+            }
         },
         onpause: () => {
             playPauseBtn.textContent = '▶';
-            trackItem.classList.remove('processing');
-        },
-        onloaderror: () => {
-            trackItem.classList.remove('processing');
+            if (animationId) {
+                cancelAnimationFrame(animationId);
+                animationId = null;
+            }
         }
     });
     audio.play();
@@ -357,7 +389,6 @@ function initEventListeners() {
     // Window resize
     window.addEventListener('resize', () => {
         updateWaveformSize();
-        if (p5sketch) p5sketch.resizeCanvas(window.innerWidth, window.innerHeight);
     });
 
     // Prevent text selection
@@ -371,45 +402,6 @@ function initEventListeners() {
     document.addEventListener('touchstart', function() {}, { passive: true });
 }
 
-// Background visualizer
-function setupVisualizer() {
-    p5sketch = new p5((p) => {
-        let bassEnergy = 0, midEnergy = 0, trebleEnergy = 0;
-        
-        p.setup = () => {
-            const canvas = p.createCanvas(window.innerWidth, window.innerHeight);
-            canvas.class('background-visualization');
-            p.colorMode(p.HSB);
-            p.noStroke();
-        };
-
-        p.draw = () => {
-            p.background(0, 0.05);
-            
-            if (!audio || !audio.playing()) return;
-            
-            if (analyser) {
-                const dataArray = new Uint8Array(analyser.frequencyBinCount);
-                analyser.getByteFrequencyData(dataArray);
-                
-                bassEnergy = dataArray.slice(0, 20).reduce((a,b) => a + b, 0) / 2000;
-                midEnergy = dataArray.slice(20, 100).reduce((a,b) => a + b, 0) / 8000;
-                trebleEnergy = dataArray.slice(100).reduce((a,b) => a + b, 0) / 15000;
-            }
-            
-            const energy = bassEnergy * 0.6 + midEnergy * 0.3 + trebleEnergy * 0.1;
-            const baseSize = p.map(energy, 0, 1, 50, 400);
-            const pulse = p.sin(p.frameCount * 0.05) * 50;
-            
-            p.fill(120, 100, 100, 0.1);
-            p.ellipse(p.width/2, p.height/2, baseSize + pulse);
-            
-            p.fill(200, 100, 100, 0.1);
-            p.ellipse(p.width/2, p.height/2, baseSize * 0.7 + pulse * 0.8);
-        };
-    });
-}
-
 // Utility functions
 function debounce(func, wait) {
     let timeout;
@@ -418,6 +410,22 @@ function debounce(func, wait) {
         clearTimeout(timeout);
         timeout = setTimeout(() => func.apply(context, args), wait);
     };
+}
+
+// Initialize audio analyzer
+function initAudioAnalyzer() {
+    try {
+        const audioContext = Howler.ctx;
+        
+        if (!analyser) {
+            analyser = audioContext.createAnalyser();
+            analyser.fftSize = 2048;
+            Howler.masterGain.connect(analyser);
+            console.log("Audio analyzer initialized");
+        }
+    } catch (error) {
+        console.error("Audio analyzer error:", error);
+    }
 }
 
 // Initialize the app when DOM is ready
