@@ -2,7 +2,7 @@
 const GITHUB_USER = 'Mrburnification';
 const REPO_NAME = 'Jam-sessions';
 const AUDIO_BASE_URL = `https://${GITHUB_USER}.github.io/${REPO_NAME}/audio`;
-const USE_MOCK_DATA = true; // Flag to toggle between real and mock data
+const USE_MOCK_DATA = false; // Flag to toggle between real and mock data
 
 // Audio system variables
 let audio;
